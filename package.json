@@ -1,6 +1,6 @@
 {
   "name": "@koehler8/cms",
-  "version": "1.0.0-beta.27",
+  "version": "1.0.0-beta.1",
   "description": "Config-driven Vue 3 CMS framework with theming, extensions, and SSG support",
   "license": "MIT",
   "type": "module",
