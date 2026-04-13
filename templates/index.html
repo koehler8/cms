@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="">
+  <head>
+    <meta charset="UTF-8">
+    <title><%= site %></title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="<%= siteDescription %>">
+    <meta property="og:title" content="<%= site %>">
+    <meta property="og:description" content="<%= siteDescription %>">
+    <meta property="og:url" content="<%= siteUrl %>">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="<%= ABSOLUTE_OG_IMAGE %>">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="<%= site %>">
+    <meta name="twitter:description" content="<%= siteDescription %>">
+    <meta name="twitter:image" content="<%= ABSOLUTE_OG_IMAGE %>">
+    <link rel="icon" href="/favicon.ico">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "<%= site %>",
+      "url": "<%= siteUrl %>",
+      "logo": "<%= ABSOLUTE_LOGO %>",
+      "sameAs": <%- siteSameAsJson %>
+    }
+    </script>
+  </head>
+  <!-- Google Analytics is loaded dynamically after user consent -->
+  <body>
+    <main>
+      <div id="app"></div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

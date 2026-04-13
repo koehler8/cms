@@ -1,0 +1,79 @@
+{
+  "name": "@koehler8/cms",
+  "version": "1.0.0-beta.27",
+  "description": "Config-driven Vue 3 CMS framework with theming, extensions, and SSG support",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/koehler8/cms.git"
+  },
+  "author": "Chris Koehler",
+  "homepage": "https://github.com/koehler8/cms#readme",
+  "bugs": {
+    "url": "https://github.com/koehler8/cms/issues"
+  },
+  "keywords": ["vue", "cms", "vite", "ssg", "theming", "extensions", "config-driven"],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "scripts": {
+    "postinstall": "node scripts/patch-lru-cache-tla.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "exports": {
+    "./vite": "./vite-plugin.js",
+    "./app": "./src/main.js",
+    "./utils/loadConfig": "./src/utils/loadConfig.js",
+    "./utils/siteStyles": "./src/utils/siteStyles.js",
+    "./utils/assetResolver": "./src/utils/assetResolver.js",
+    "./utils/*": "./src/utils/*",
+    "./composables/*": "./src/composables/*",
+    "./components/*": "./src/components/*",
+    "./router": "./src/router/index.js",
+    "./themes/*": "./src/themes/*",
+    "./extensions/*": "./src/extensions/*",
+    "./constants/*": "./src/constants/*",
+    "./plugins/*": "./src/plugins/*",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "cms-generate-public-assets": "./bin/cms-generate-public-assets.js",
+    "cms-validate-themes": "./bin/cms-validate-themes.js",
+    "cms-validate-extensions": "./bin/cms-validate-extensions.js"
+  },
+  "files": [
+    "src",
+    "extensions",
+    "themes",
+    "scripts",
+    "public",
+    "templates",
+    "bin",
+    "vite-plugin.js",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@vitejs/plugin-vue": "^6.0.0",
+    "vite": "^8.0.0",
+    "vite-ssg": "^28.0.0",
+    "vue": "^3.5.0",
+    "vue-router": "^5.0.0"
+  },
+  "dependencies": {
+    "@unhead/vue": "^2.0.19",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "canvas": "^3.2.0",
+    "dotenv": "^17.2.3",
+    "pinia": "^3.0.1",
+    "png-to-ico": "^3.0.1"
+  },
+  "devDependencies": {
+    "@vue/test-utils": "^2.4.6",
+    "happy-dom": "^20.8.9",
+    "vitest": "^4.1.4"
+  }
+}

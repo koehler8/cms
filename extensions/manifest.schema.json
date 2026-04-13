@@ -1,0 +1,125 @@
+{
+  "$id": "https://raw.githubusercontent.com/koehler8/cms/main/extensions/manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Component Extension Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["slug", "version", "provider", "license", "components"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[A-Za-z0-9.-]+)?$"
+    },
+    "provider": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "format": "uri" },
+        "contact": { "type": "string" }
+      }
+    },
+    "entry": {
+      "type": "string",
+      "pattern": "^\\./"
+    },
+    "setup": {
+      "type": "string",
+      "pattern": "^\\./"
+    },
+    "license": {
+      "type": "string",
+      "minLength": 3
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "label", "description", "configKey"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9]+$"
+          },
+          "module": {
+            "type": "string",
+            "pattern": "^\\./.*$"
+          },
+          "label": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "configKey": {
+            "type": "string",
+            "pattern": "^[a-z][A-Za-z0-9]*$"
+          },
+          "propsInterface": {
+            "type": "string",
+            "pattern": "^\\./"
+          },
+          "slots": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+            "uniqueItems": true
+          },
+          "events": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+            "uniqueItems": true
+          },
+          "requiredContent": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          },
+          "allowedPages": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+            "uniqueItems": true
+          },
+          "minAppVersion": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[A-Za-z0-9.-]+)?$"
+          }
+        }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "styles": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^\\./" },
+          "uniqueItems": true
+        },
+        "static": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^\\./" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "npm": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z0-9@][a-z0-9@/_-]*$"
+          },
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

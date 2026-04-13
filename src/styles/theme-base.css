@@ -1,0 +1,84 @@
+:root {
+  --about-image-surface: rgba(10, 10, 13, 0.94);
+  --about-image-placeholder: linear-gradient(135deg, rgba(20, 18, 22, 0.55), rgba(10, 10, 13, 0.75));
+  --responsive-picture-surface: var(--about-image-surface);
+  --responsive-picture-placeholder: var(--about-image-placeholder);
+  --brand-neon-pink: #e44b8d;
+  --brand-crimson-red: #d04f4f;
+  --brand-sultry-purple: #5c6ac4;
+  --brand-electric-blue: #4f6cf0;
+  --brand-amber-heat: #f18f3b;
+  --brand-deep-violet: #2f3a68;
+
+  --brand-bg-900: #f5f7ff;
+  --brand-bg-800: #edf1ff;
+  --brand-bg-700: #dce4ff;
+  --brand-fg-050: #243a80;
+  --brand-fg-100: #1f2a44;
+  --brand-fg-200: #334261;
+  --brand-fg-300: #54627b;
+
+  --brand-radius-sm: 8px;
+  --brand-radius-md: 14px;
+  --brand-radius-lg: 24px;
+
+  --brand-gradient-ignition: linear-gradient(135deg, #4f6cf0 0%, #243a80 100%);
+  --brand-shadow-glow: 0 16px 32px rgba(28, 42, 96, 0.28);
+  --brand-shadow-glow-strong: 0 22px 44px rgba(23, 35, 80, 0.32);
+  --brand-chart-track: rgba(236, 241, 255, 0.85);
+  --brand-chart-center-text: var(--brand-fg-100);
+  --brand-cta-text: #ffffff;
+
+  --brand-accent-electric: var(--brand-electric-blue);
+  --brand-accent-electric-soft: rgba(79, 108, 240, 0.18);
+  --brand-accent-warm: var(--brand-amber-heat);
+
+  --brand-card-soft: #ffffff;
+  --brand-card-border: rgba(79, 108, 240, 0.16);
+  --brand-card-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+
+  --brand-primary-cta-gradient: var(--brand-gradient-ignition);
+  --brand-primary-cta-text: var(--brand-cta-text);
+  --brand-primary-cta-shadow: var(--brand-shadow-glow);
+  --brand-primary-cta-hover-shadow: var(--brand-shadow-glow-strong);
+  --brand-primary-cta-hover-translate: translateY(-2px);
+
+  --brand-surface-card-bg: var(--brand-card-soft);
+  --brand-surface-card-border: var(--brand-card-border);
+  --brand-surface-card-shadow: var(--brand-card-shadow);
+  --brand-surface-helper-bg: rgba(79, 108, 240, 0.08);
+  --brand-surface-helper-hover-bg: rgba(79, 108, 240, 0.14);
+  --brand-card-radius: var(--brand-radius-lg);
+  --brand-button-radius: var(--brand-radius-md);
+
+  --brand-icon-badge-bg: rgba(79, 108, 240, 0.12);
+  --brand-icon-badge-color: var(--brand-deep-violet);
+
+  --brand-pill-gradient: linear-gradient(135deg, var(--brand-electric-blue) 0%, #2b3d7b 100%);
+  --brand-pill-alt-gradient: linear-gradient(135deg, var(--brand-sultry-purple) 0%, var(--brand-electric-blue) 100%);
+  --brand-pill-contrast: #ffffff;
+
+  --brand-border-highlight: rgba(79, 108, 240, 0.28);
+  --brand-border-glow: rgba(79, 108, 240, 0.32);
+
+  --brand-status-success: #239c65;
+  --brand-status-error: var(--brand-crimson-red);
+  --brand-status-error-soft: rgba(208, 79, 79, 0.18);
+
+  --brand-input-bg: #ffffff;
+  --brand-input-border: rgba(79, 108, 240, 0.25);
+  --brand-input-border-active: rgba(79, 108, 240, 0.45);
+  --brand-input-text: var(--brand-fg-100);
+  --brand-input-placeholder: rgba(84, 98, 123, 0.64);
+  --brand-focus-ring: 0 0 0 2px rgba(79, 108, 240, 0.3);
+  --brand-focus-glow: 0 0 22px rgba(79, 108, 240, 0.22);
+
+  --brand-modal-backdrop: rgba(15, 23, 42, 0.55);
+  --brand-modal-surface: rgba(255, 255, 255, 0.97);
+  --brand-modal-border: rgba(79, 108, 240, 0.18);
+  --brand-modal-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+  --brand-modal-radius: var(--brand-radius-lg);
+
+  --brand-countdown-digit: var(--brand-accent-electric);
+  --brand-countdown-label: rgba(84, 98, 123, 0.75);
+}
