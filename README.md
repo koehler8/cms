@@ -1,9 +1,9 @@
-# @koehler8/cms
+# Vertex CMS
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![GitHub Packages](https://img.shields.io/badge/npm-GitHub%20Packages-brightgreen)](https://github.com/koehler8/cms/packages)
 
-Config-driven Vue 3 CMS framework with theming, extensions, and SSG support.
+Vertex CMS is a lightweight, config-driven Vue 3 framework with theming, extensions, and SSG support.
 
 ## Quick Start
 

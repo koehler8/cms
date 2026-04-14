@@ -6,7 +6,7 @@ Initial public beta release.
 
 ### Features
 
-- Config-driven Vue 3 CMS framework with Vite plugin
+- Vertex CMS — lightweight, config-driven Vue 3 framework with Vite plugin
 - Theming system with design token manifests and CSS custom properties
 - Extension system with AJV-validated manifests and component loader
 - Built-in components: Header, Hero, Footer, Contact, and more

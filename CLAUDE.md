@@ -1,8 +1,8 @@
-# CLAUDE.md — @koehler8/cms
+# CLAUDE.md — Vertex CMS
 
 ## What This Project Is
 
-A config-driven Vue 3 CMS framework (`@koehler8/cms`) published as an npm package to GitHub Packages. Consuming sites import the Vite plugin and provide a `site/` directory with JSON config and assets — no application code needed.
+Vertex CMS (`@koehler8/cms`) — a lightweight, config-driven Vue 3 framework published as an npm package to GitHub Packages. Consuming sites import the Vite plugin and provide a `site/` directory with JSON config and assets — no application code needed.
 
 ## Architecture
 
