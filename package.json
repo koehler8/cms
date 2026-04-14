@@ -1,6 +1,6 @@
 {
   "name": "@koehler8/cms",
-  "version": "1.0.0-beta.4",
+  "version": "1.0.0-beta.5",
   "description": "Vertex CMS — lightweight, config-driven Vue 3 framework with theming, extensions, and SSG support",
   "license": "MIT",
   "type": "module",
@@ -14,9 +14,6 @@
     "url": "https://github.com/koehler8/cms/issues"
   },
   "keywords": ["vue", "cms", "vite", "ssg", "theming", "extensions", "config-driven"],
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  },
   "scripts": {
     "postinstall": "node scripts/patch-lru-cache-tla.js",
     "test": "vitest run",

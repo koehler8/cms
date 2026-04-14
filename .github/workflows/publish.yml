@@ -1,4 +1,4 @@
-name: Publish to GitHub Packages
+name: Publish to npm
 
 on:
   push:
@@ -8,29 +8,21 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20.19.0'
-          registry-url: 'https://npm.pkg.github.com'
-          scope: '@koehler8'
-
-      - name: Install system deps for canvas
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
-
-      - name: Install
-        run: npm install --ignore-scripts
-        # --ignore-scripts skips the postinstall lru-cache patch since we don't
-        # need to patch anything on the publishing machine itself.
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Publish
-        run: npm publish
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ "$VERSION" == *-* ]]; then
+            npm publish --access public --tag beta
+          else
+            npm publish --access public
+          fi
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
