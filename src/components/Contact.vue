@@ -82,7 +82,7 @@ import { trackEvent } from '../utils/analytics.js';
 
 const title = ref('Contact Us')
 const subtitle = ref("Send us a message and we'll keep you updated.")
-const formAction = ref('https://docs.google.com/forms/d/e/1FAIpQLSffHYh_hS8zVIA2Dy4ydmFElnrTrpMwgfisZgX8pALvA-d6fw/formResponse')
+const formAction = ref('')
 const submitLabel = ref('Send Message')
 const confirmationText = ref('Your message has been sent successfully.')
 const isConfirmationVisible = ref(false)
@@ -109,10 +109,10 @@ const placeholders = reactive({
   message: 'Enter Your Message'
 })
 
-// Google Forms hidden fields — fbzx is a required static form parameter, not a secret
+// Google Forms hidden fields — configure via site config (contact.form.hidden)
 const hiddenFields = reactive({
   fvv: '1',
-  fbzx: '-6918863791998391765',
+  fbzx: '',
   pageHistory: '0'
 })
 
