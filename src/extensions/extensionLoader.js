@@ -1,6 +1,6 @@
 import { defineAsyncComponent } from 'vue';
 
-import manifestSchema from '../../extensions/manifest.schema.json';
+import manifestSchema from '../../extensions/manifest.schema.json' with { type: 'json' };
 import { unwrapDefault as toPlainModule } from '../utils/unwrapDefault.js';
 
 const manifestModules = import.meta.glob('../../extensions/**/extension.config.json', {
