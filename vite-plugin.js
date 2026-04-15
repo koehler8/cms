@@ -431,7 +431,7 @@ export default function cmsPlugin(options = {}) {
           // native ESM resolver cannot handle.  Marking them as noExternal
           // tells Vite to bundle them during SSR so its Vue/JSON plugins
           // process the files instead of Node.
-          noExternal: ['@koehler8/cms', ...extensionPackages],
+          noExternal: ['@koehler8/cms', ...themePackages, ...extensionPackages],
         },
         test: {
           environment: 'happy-dom',
