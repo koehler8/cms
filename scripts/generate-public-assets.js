@@ -3,7 +3,7 @@
 //
 // Reads from CMS_SITE_DIR env var (e.g. /path/to/my-site/site/).
 // Assets are read from {CMS_SITE_DIR}/assets/, config from
-// {CMS_SITE_DIR}/config/site.json, output is written to
+// {CMS_SITE_DIR}/content/{baseLocale}/site.json, output is written to
 // {dirname(CMS_SITE_DIR)}/public/.
 
 import 'dotenv/config';
@@ -260,12 +260,23 @@ function renderOgImageBuffer(text, { width = 1200, height = 630, bg = '#000000',
 }
 
 function loadSiteTitle() {
-  const configPath = path.join(CMS_SITE_DIR, 'config', 'site.json');
+  const contentDir = path.join(CMS_SITE_DIR, 'content');
+  const contentConfigPath = path.join(contentDir, 'content.config.json');
+  let baseLocale = 'en';
+  try {
+    if (fs.existsSync(contentConfigPath)) {
+      const cc = JSON.parse(fs.readFileSync(contentConfigPath, 'utf-8'));
+      baseLocale = cc.baseLocale || 'en';
+    }
+  } catch { /* use default */ }
+
+  const configPath = path.join(contentDir, baseLocale, 'site.json');
   if (!fs.existsSync(configPath)) return '';
   try {
     const raw = fs.readFileSync(configPath, 'utf-8');
     const parsed = JSON.parse(raw);
-    const title = parsed?.title || parsed?.site?.title;
+    // Flat format: key is "title"; nested format: key is "site.title" or nested
+    const title = parsed?.title || parsed?.['site.title'] || parsed?.site?.title;
     if (typeof title === 'string' && title.trim()) {
       return title.trim();
     }

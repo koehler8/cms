@@ -133,44 +133,84 @@ export function mergeConfigTrees(target, source, options = {}) {
 export function createConfigLoader(allModules) {
     const toPlain = unwrapDefault;
 
-    // Find the site.json path and derive the config prefix (everything up to
-    // and including `/config/`) so subsequent lookups are scoped correctly.
-    function findSiteConfigPrefix() {
+    // Discover which locale directories exist in the content folder by
+    // extracting unique locale codes from the allModules glob keys.
+    function discoverAvailableLocales() {
+        const locales = new Set();
+        const re = /\/content\/([a-z]{2,3}(?:-[a-zA-Z]{2,4})?)\//;
+        for (const key of Object.keys(allModules)) {
+            const match = key.match(re);
+            if (match) locales.add(match[1].toLowerCase());
+        }
+        return Array.from(locales).sort();
+    }
+
+    const availableLocales = discoverAvailableLocales();
+
+    // Find the content root (path ending in `/content/`) and resolve the base
+    // locale from content.config.json.
+    function findContentRoot() {
         const keys = Object.keys(allModules);
-        const siteJsonKeys = keys.filter((key) => key.endsWith('/config/site.json'));
-        if (siteJsonKeys.length === 1) {
-            const key = siteJsonKeys[0];
-            return key.slice(0, key.length - 'site.json'.length);
+        const configKey = keys.find((key) => key.endsWith('/content/content.config.json'));
+        if (configKey) {
+            return configKey.slice(0, configKey.length - 'content.config.json'.length);
         }
         return null;
     }
 
-    async function assembleBaseConfig() {
-        const prefix = findSiteConfigPrefix();
-        if (!prefix) return null;
+    async function resolveBaseLocale(contentRoot) {
+        const configLoader = allModules[`${contentRoot}content.config.json`];
+        if (!configLoader) return 'en';
+        const config = toPlain(await configLoader());
+        return (config && config.baseLocale) || 'en';
+    }
 
-        const siteLoader = allModules[`${prefix}site.json`];
-        if (!siteLoader) return null;
+    // Assemble a config from a locale directory: inflates flat-format files
+    // (site.json, shared.json, pages/*.json) and returns { site, shared, pages }.
+    // When require is true, returns null if site.json is missing (used for
+    // base config). When false, assembles whatever files exist (used for
+    // locale overrides that may only contain partial translations).
+    async function assembleSplitConfig(localePrefix, { require: requireSite = false } = {}) {
+        const siteLoader = allModules[`${localePrefix}site.json`];
+        if (!siteLoader && requireSite) return null;
 
-        const sharedLoader = allModules[`${prefix}shared.json`];
-        const [siteData, sharedData] = await Promise.all([
-            siteLoader().then(toPlain),
+        const sharedLoader = allModules[`${localePrefix}shared.json`];
+        const [rawSite, rawShared] = await Promise.all([
+            siteLoader ? siteLoader().then(toPlain) : Promise.resolve({}),
             sharedLoader ? sharedLoader().then(toPlain) : Promise.resolve({}),
         ]);
+        const siteData = inflateFlatConfig(rawSite);
+        const sharedData = inflateFlatConfig(rawShared);
 
-        // Collect only the pages that belong to this site's config directory
-        const pagePrefix = `${prefix}pages/`;
+        const pagePrefix = `${localePrefix}pages/`;
         const pages = {};
         const pageLoads = [];
         for (const [path, loader] of Object.entries(allModules)) {
             if (path.startsWith(pagePrefix) && path.endsWith('.json')) {
                 const pageId = path.slice(pagePrefix.length, -5);
-                pageLoads.push(loader().then((mod) => { pages[pageId] = toPlain(mod); }));
+                pageLoads.push(
+                    loader().then((mod) => { pages[pageId] = inflateFlatConfig(toPlain(mod)); })
+                );
             }
         }
         await Promise.all(pageLoads);
 
-        return { site: siteData, shared: sharedData, pages, _configPrefix: prefix };
+        // Return null if no files were found at all for this locale
+        if (!siteLoader && !sharedLoader && Object.keys(pages).length === 0) return null;
+
+        return { site: siteData, shared: sharedData, pages };
+    }
+
+    async function assembleBaseConfig() {
+        const contentRoot = findContentRoot();
+        if (!contentRoot) return null;
+
+        const baseLocale = await resolveBaseLocale(contentRoot);
+        const basePrefix = `${contentRoot}${baseLocale}/`;
+        const config = await assembleSplitConfig(basePrefix, { require: true });
+        if (!config) return null;
+
+        return { ...config, _contentRoot: contentRoot, _baseLocale: baseLocale };
     }
 
     async function loadConfigData(options) {
@@ -202,22 +242,24 @@ export function createConfigLoader(allModules) {
 
         if (normalizedLocale === undefined) {
             const config = await getBaseConfig();
-            delete config._configPrefix;
+            delete config._contentRoot;
+            delete config._baseLocale;
             return config;
         }
 
         const baseConfig = await getBaseConfig();
 
         let mergedConfig = baseConfig;
-        // Find locale override scoped to the same config directory as the site
-        const configPrefix = baseConfig._configPrefix;
-        const localizedLoader = configPrefix
-            ? allModules[`${configPrefix}i18n/${normalizedLocale}.json`]
-            : undefined;
-        if (localizedLoader) {
-            const rawLocalized = toPlain(await localizedLoader());
-            const localizedConfig = inflateFlatConfig(rawLocalized);
-            mergedConfig = mergeConfigTrees(baseConfig, localizedConfig, { cloneTarget: true, skipEmpty: true });
+        const contentRoot = baseConfig._contentRoot;
+        const baseLocale = baseConfig._baseLocale;
+
+        // Only load locale overrides if the requested locale differs from the base
+        if (contentRoot && normalizedLocale !== baseLocale) {
+            const localePrefix = `${contentRoot}${normalizedLocale}/`;
+            const localeConfig = await assembleSplitConfig(localePrefix);
+            if (localeConfig) {
+                mergedConfig = mergeConfigTrees(baseConfig, localeConfig, { cloneTarget: true, skipEmpty: true });
+            }
         }
         if (mergedConfig && mergedConfig.pages && typeof mergedConfig.pages === 'object') {
             for (const page of Object.values(mergedConfig.pages)) {
@@ -247,11 +289,12 @@ export function createConfigLoader(allModules) {
                 });
             }
         }
-        delete mergedConfig._configPrefix;
+        delete mergedConfig._contentRoot;
+        delete mergedConfig._baseLocale;
         return mergedConfig;
     }
 
-    return { loadConfigData, mergeConfigTrees, cloneConfig };
+    return { loadConfigData, mergeConfigTrees, cloneConfig, availableLocales };
 }
 
 // ---- Runtime singleton ----
@@ -263,9 +306,14 @@ let _loadConfigData = async () => {
   throw new Error('[@koehler8/cms] loadConfigData() called before config loader was initialized');
 };
 
+let _availableLocales = [];
+
 export function setConfigLoader(instance) {
   if (!instance) return;
   _loadConfigData = instance.loadConfigData;
+  _availableLocales = instance.availableLocales || [];
 }
+
+export { _availableLocales as availableLocales };
 
 export const loadConfigData = (...args) => _loadConfigData(...args);

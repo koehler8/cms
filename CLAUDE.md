@@ -17,23 +17,23 @@ src/themes/             Theme loader, manager, and validator
 src/extensions/         Extension loader with AJV manifest validation
 themes/base/            Default theme with full design token manifest
 extensions/             Extension manifest JSON schema
-scripts/                Build-time scripts (asset generation, validation, i18n flattening)
+scripts/                Build-time scripts (asset generation, validation, content migration)
 bin/                    CLI entry points wrapping scripts/
 templates/index.html    EJS-templated HTML shell
 ```
 
 ### Key Patterns
 
-- **One site = one repo**: Each site is a standalone repo with a `site/` directory containing JSON config and assets.
+- **One site = one repo**: Each site is a standalone repo with a `site/` directory containing content, assets, and styles.
 - **Virtual modules**: The Vite plugin generates `virtual:cms-config-loader`, `virtual:cms-site-styles`, and `virtual:cms-asset-resolver` to wire site content into the framework at build time.
 - **Singletons**: `loadConfigData`, `ensureSiteStylesLoaded`, `resolveAsset` etc. are initialized once by the generated `.cms-entry.js` to prevent duplicate instances across linked packages.
 - **Three-tier component resolution**: Built-in components -> extension components -> fallback. Components are referenced by name or `source-slug:ComponentName`.
-- **Config merging**: Deep merge with locale overrides (i18n/{locale}/) layered on top of base config.
+- **Content directory**: All translatable copy lives in `site/content/` with per-locale subdirectories (`en/`, `de/`, `ja/`, etc.) that mirror each other's structure. A `content.config.json` at the root specifies the base locale. All files use flat dot-notation keys sorted alphabetically. The base locale is loaded first; selected locale overrides only where keys are specified.
 - **Theme tokens -> CSS vars**: Theme manifests define design tokens; `themeManager.js` converts them to CSS custom properties on `document.documentElement`.
 
 ### Data Flow
 
-1. Vite plugin reads `site/config/` and generates virtual modules
+1. Vite plugin reads `site/content/{baseLocale}/` and generates virtual modules
 2. `main.js` creates ViteSSG app, loads config via `loadConfigData()`
 3. Router resolves page by path, `Home.vue` renders via `usePageConfig()` + `useComponentResolver()`
 4. Components receive merged `content` prop from page config + extension defaults

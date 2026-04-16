@@ -85,14 +85,14 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } fr
   import { resolveAsset } from '../utils/assetResolver.js';
 import { trackEvent } from '../utils/analytics.js';
 import { getExtensionComponent } from '../extensions/extensionLoader.js';
-import SUPPORTED_LOCALES from '../constants/locales.js';
+import { availableLocales as siteLocales } from '../utils/loadConfig.js';
 
   const logoSrc = computed(() => resolveAsset('img/logo.png'));
 
 const isLangOpen = ref(false);
 const isHeaderCompact = ref(false);
 const currentLocale = ref('');
-const availableLocales = computed(() => SUPPORTED_LOCALES.map((code) => code.trim()).filter(Boolean));
+const availableLocales = computed(() => siteLocales.map((code) => code.trim()).filter(Boolean));
 const localeLabels = {
   en: 'English',
   fr: 'Français',

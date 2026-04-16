@@ -12,24 +12,25 @@ import { fileURLToPath } from 'node:url';
 import vue from '@vitejs/plugin-vue';
 
 import { SUPPORTED_LOCALES } from './src/constants/locales.js';
+import { inflateFlatConfig } from './src/utils/inflateFlatConfig.js';
 
 // ---- Helpers ----
 
-function loadSplitConfig(configDir) {
-  const sitePath = path.join(configDir, 'site.json');
+function loadSplitConfig(contentLocaleDir) {
+  const sitePath = path.join(contentLocaleDir, 'site.json');
   if (!fs.existsSync(sitePath)) return null;
 
-  const site = JSON.parse(fs.readFileSync(sitePath, 'utf-8'));
-  const sharedPath = path.join(configDir, 'shared.json');
-  const shared = fs.existsSync(sharedPath) ? JSON.parse(fs.readFileSync(sharedPath, 'utf-8')) : {};
+  const site = inflateFlatConfig(JSON.parse(fs.readFileSync(sitePath, 'utf-8')));
+  const sharedPath = path.join(contentLocaleDir, 'shared.json');
+  const shared = fs.existsSync(sharedPath) ? inflateFlatConfig(JSON.parse(fs.readFileSync(sharedPath, 'utf-8'))) : {};
 
-  const pagesDir = path.join(configDir, 'pages');
+  const pagesDir = path.join(contentLocaleDir, 'pages');
   const pages = {};
   if (fs.existsSync(pagesDir)) {
     for (const file of fs.readdirSync(pagesDir)) {
       if (!file.endsWith('.json')) continue;
       const pageId = file.replace('.json', '');
-      pages[pageId] = JSON.parse(fs.readFileSync(path.join(pagesDir, file), 'utf-8'));
+      pages[pageId] = inflateFlatConfig(JSON.parse(fs.readFileSync(path.join(pagesDir, file), 'utf-8')));
     }
   }
 
@@ -356,7 +357,13 @@ export default function cmsPlugin(options = {}) {
       tempEntryPath = path.join(siteRoot, ENTRY_FILENAME);
 
       // Load site config at config-resolution time (needed for SSG routes + HTML injection)
-      const configDir = path.join(siteDir, 'config');
+      const contentDir = path.join(siteDir, 'content');
+      const contentConfigPath = path.join(contentDir, 'content.config.json');
+      const contentConfig = fs.existsSync(contentConfigPath)
+        ? JSON.parse(fs.readFileSync(contentConfigPath, 'utf-8'))
+        : {};
+      const baseLocale = contentConfig.baseLocale || 'en';
+      const configDir = path.join(contentDir, baseLocale);
       siteConfig = loadSplitConfig(configDir);
       if (!siteConfig) {
         throw new Error(`[@koehler8/cms] site config not found at ${configDir}`);
@@ -479,11 +486,12 @@ export default function cmsPlugin(options = {}) {
       if (virtualId === VIRTUAL_CONFIG) {
         return `
 import { createConfigLoader } from '@koehler8/cms/utils/loadConfig';
-const allModules = import.meta.glob('@cms-site/config/**/*.json');
+const allModules = import.meta.glob('@cms-site/content/**/*.json');
 const loader = createConfigLoader(allModules);
 export const loadConfigData = loader.loadConfigData;
 export const mergeConfigTrees = loader.mergeConfigTrees;
 export const cloneConfig = loader.cloneConfig;
+export const availableLocales = loader.availableLocales;
 `;
       }
 

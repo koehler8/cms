@@ -75,15 +75,25 @@ vite-ssg build    # Static site generation
 
 ## Site Configuration
 
-Site content lives in `site/config/`:
+Site content lives in `site/content/`, organized by locale:
 
-- **`site.json`** -- Site-level metadata (title, description, URL, theme, Google Analytics ID)
-- **`shared.json`** -- Content blocks shared across pages (header, footer, socials)
-- **`pages/*.json`** -- Per-page content keyed by page ID
+```
+site/content/
+  content.config.json        # { "baseLocale": "en" }
+  en/
+    site.json                # Site metadata (flat dot-notation keys, sorted)
+    shared.json              # Shared content (header, footer, socials)
+    pages/
+      home.json              # Per-page content
+      privacy.json
+  de/
+    site.json                # German overrides (only translated keys)
+    shared.json
+    pages/
+      home.json
+```
 
-### Locale Overrides
-
-Place locale-specific configs in `site/config/i18n/{locale}/` mirroring the same structure. They are deep-merged over the base config at runtime.
+All files use flat dot-notation keys in alphabetical order. The base locale (specified in `content.config.json`) is loaded first; other locale directories override only the keys they specify. Missing keys fall back to the base locale value.
 
 **Supported locales:** en, fr, es, de, ja, ko, pt, ru, tr, vi, id, zh, th, hi, fil
 
@@ -91,7 +101,7 @@ Place locale-specific configs in `site/config/i18n/{locale}/` mirroring the same
 
 Themes export a manifest with design tokens (palette, typography, surfaces, CTAs, etc.) that are applied as CSS variables at runtime.
 
-- Set `site.theme` in `site.json` to a theme slug
+- Set the `theme` key in `content/{baseLocale}/site.json` to a theme slug
 - Omit it to use the built-in `base` theme
 - External themes are npm packages registered via the `themes` plugin option
 
