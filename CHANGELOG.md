@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.0-beta.15
+
+### Remove built-in `Loading…` placeholder; expose loading state via inject
+
+The `Home.vue` page wrapper no longer renders an inline `<div class="page-loading-placeholder">Loading…</div>` (or its sibling `page-error-message`) at all. The element was a generic default that consumer sites either had to live with, restyle, or hide via critical CSS. The hydration-tick guard added in beta.9 had already prevented the flash on SSG-rendered pages, but the markup is now removed at the source — sites no longer need to know it ever existed.
+
+In its place, `Home` now provides two refs via `provide()` so sites can build their own loading / error UI as a normal component:
+
+- `inject('pageIsLoading')` — `Ref<boolean>` reflecting whether `usePageConfig`'s `syncPage()` is in flight.
+- `inject('pageLoadError')` — `Ref<Error|null>` set when a page-load promise rejects.
+
+**To add a preloader / error UI to a site:**
+
+- Drop a `site/components/Preloader.vue` (or `ErrorBanner.vue`, etc.) that injects the refs and renders conditionally on their value, then list the component in any page's `components[]` array. Auto-globbed since beta.10.
+- Or use the bundled `Preloader` component (currently a four-dot placeholder shell — sites typically override it via `site/components/Preloader.vue`).
+
+**Migration**: sites that were carrying a `.page-loading-placeholder { display: none !important }` rule in their critical CSS to suppress the flash can drop it. The element no longer exists in the DOM.
+
 ## 1.0.0-beta.14
 
 ### Scaffolding CLIs: `cms-create-theme` and `cms-create-extension`

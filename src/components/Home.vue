@@ -10,21 +10,6 @@
       :key="entry.key"
       v-bind="entry.props"
     />
-    <div
-      v-if="showLoadingIndicator"
-      class="page-loading-placeholder"
-      role="status"
-      aria-live="polite"
-    >
-      Loading…
-    </div>
-    <div
-      v-else-if="loadErrorMessage"
-      class="page-error-message"
-      role="alert"
-    >
-      {{ loadErrorMessage }}
-    </div>
   </main>
   <ComingSoonModal
     :open="isComingSoonVisible"
@@ -35,7 +20,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, provide, ref, watch } from 'vue';
+import { computed, nextTick, provide, watch } from 'vue';
 
 import ComingSoonModal from '../components/ComingSoonModal.vue';
 import IntroGate from '../components/IntroGate.vue';
@@ -106,25 +91,13 @@ provide('pageContent', pageContent);
 provide('pageConfig', currentPage);
 provide('currentPageId', computed(() => currentPage.value.id));
 
-// Suppress the loading placeholder during the initial hydration tick
-// so SSG-rendered pages don't flash "Loading…" while the client-side
-// syncPage briefly resets componentKeys to []. After the first mount
-// completes, genuine slow loads (real navigation) can still surface
-// the placeholder.
-const isHydrating = ref(true);
-onMounted(() => {
-  nextTick().then(() => {
-    isHydrating.value = false;
-  });
-});
-
-const showLoadingIndicator = computed(() =>
-  !isHydrating.value &&
-  isLoading.value &&
-  componentKeys.value.length === 0 &&
-  !loadError.value
-);
-const loadErrorMessage = computed(() => loadError.value ? (loadError.value.message || 'Unable to load page content.') : '');
+// Loading + error state are exposed via inject so sites can build their
+// own preloader / error surface as a component (e.g. site/components/
+// Preloader.vue or the bundled Preloader). Home itself no longer renders
+// any built-in placeholder UI — sites that want one opt in by listing a
+// preloader component in their pages/{pageId}.json `components[]`.
+provide('pageIsLoading', isLoading);
+provide('pageLoadError', loadError);
 
 watch(componentKeys, async () => {
   await nextTick();
@@ -142,20 +115,3 @@ watch(
 );
 </script>
 
-<style scoped>
-.page-loading-placeholder,
-.page-error-message {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 40vh;
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: #111;
-  text-align: center;
-}
-
-.page-error-message {
-  color: #b00020;
-}
-</style>
