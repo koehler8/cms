@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0-beta.9
+
+### `Home.vue`: suppress the loading placeholder during initial hydration
+
+For SSG-rendered pages, `componentKeys` briefly resets to `[]` on the client during the first `syncPage` call before the cached config resolves. That made `showLoadingIndicator` flicker true for one tick, causing a jarring "Loading…" flash on top of already-rendered content. The placeholder now waits for the first `onMounted` + `nextTick` before it can render — initial hydration is silent, but genuine in-session navigation that's actually slow can still surface the placeholder.
+
+### Pin Node 20.19 / npm 10.8 via `engines` + `.nvmrc`
+
+Adds `engines.node: ">=20.19.0"` and `engines.npm: "^10.8.0"` to `package.json`, plus a top-level `.nvmrc`. Matches AWS Amplify's default Node 20 environment, eliminating the lockfile drift that bit the coastalcollective site deploy when a regen on npm 11 stripped the `@rolldown/binding-linux-x64-gnu` optional-dep entries Amplify needed. Sites consuming the framework should add a matching `.nvmrc` and switch back to `npm ci` for reproducible installs.
+
 ## 1.0.0-beta.8
 
 ### Theme system: SSR-rendered theme attribute + sync-bundled theme CSS

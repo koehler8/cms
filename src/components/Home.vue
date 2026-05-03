@@ -35,7 +35,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, provide, watch } from 'vue';
+import { computed, nextTick, onMounted, provide, ref, watch } from 'vue';
 
 import ComingSoonModal from '../components/ComingSoonModal.vue';
 import IntroGate from '../components/IntroGate.vue';
@@ -106,7 +106,24 @@ provide('pageContent', pageContent);
 provide('pageConfig', currentPage);
 provide('currentPageId', computed(() => currentPage.value.id));
 
-const showLoadingIndicator = computed(() => isLoading.value && componentKeys.value.length === 0 && !loadError.value);
+// Suppress the loading placeholder during the initial hydration tick
+// so SSG-rendered pages don't flash "Loading…" while the client-side
+// syncPage briefly resets componentKeys to []. After the first mount
+// completes, genuine slow loads (real navigation) can still surface
+// the placeholder.
+const isHydrating = ref(true);
+onMounted(() => {
+  nextTick().then(() => {
+    isHydrating.value = false;
+  });
+});
+
+const showLoadingIndicator = computed(() =>
+  !isHydrating.value &&
+  isLoading.value &&
+  componentKeys.value.length === 0 &&
+  !loadError.value
+);
 const loadErrorMessage = computed(() => loadError.value ? (loadError.value.message || 'Unable to load page content.') : '');
 
 watch(componentKeys, async () => {
