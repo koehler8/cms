@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.0-beta.12
+
+### Drop the implicit `base` theme auto-apply (BREAKING for sites that relied on it)
+
+Previously, when a site didn't configure a theme (`theme:` key absent from `site.json`), `applySiteTheme` silently fell back to `"base"`, applying the bundled blue/orange palette. That hid configuration mistakes — a site could register a theme in its `vite.config.js` `themes:` array, forget to add `"theme": "X"` to `site.json`, and silently render with `base` instead of the theme it intended.
+
+`applySiteTheme` now returns early when no theme is configured. The `data-site-theme` attribute is not set on `<html>`, none of the `:root[data-site-theme="X"]` rules in `virtual:cms-theme-vars.css` apply, and components fall back to their hardcoded CSS defaults (which look mixed and a bit broken — that's intentional, it makes the misconfiguration visible).
+
+**Migration**: sites that *want* the bundled `base` palette as their design must add `"theme": "base"` to `site.json`. Sites that intend a different theme must register it in `vite.config.js` `themes:` AND set `"theme": "<slug>"` in `site.json`.
+
+`setActiveThemeKey` (used by JS color utilities like `resolveThemeColor`) is unchanged and still falls back to `base` for color resolution, so utility palette lookups continue to work even with no `data-site-theme` on `<html>`.
+
 ## 1.0.0-beta.11
 
 ### Allow setup-only / styles-only extensions

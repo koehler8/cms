@@ -41,14 +41,29 @@ const extractThemeKey = (siteData) => {
 
 const applySiteTheme = (themeKey, head) => {
   const normalized = normalizeThemeKey(themeKey);
-  const resolved = normalized || 'base';
+
+  // No theme configured — leave `<html>` without `data-site-theme` so
+  // none of the `:root[data-site-theme="X"]` rules in the bundled
+  // virtual:cms-theme-vars.css apply. Components fall back to their
+  // hardcoded CSS defaults. Sites that intentionally want the bundled
+  // `base` palette must opt in via `"theme": "base"` in site.json (or
+  // any locale's site.json).
+  //
+  // (The implicit auto-apply of `base` was removed in 1.0.0-beta.12.
+  // It hid configuration mistakes — sites that registered a theme but
+  // forgot to activate it silently rendered with `base` instead of the
+  // theme they intended. Surfacing the misconfiguration via "no theme
+  // applied" is more honest.)
+  if (!normalized) {
+    return;
+  }
 
   // Push the html attribute via @unhead so `data-site-theme="X"` lands
   // in the SSR-rendered HTML *before* Vue hydrates. Theme CSS selectors
   // (`:root[data-site-theme="X"]`) then apply during the very first
   // paint, eliminating the need for site-side critical-CSS overrides.
   if (head && typeof head.push === 'function') {
-    head.push({ htmlAttrs: { 'data-site-theme': resolved } });
+    head.push({ htmlAttrs: { 'data-site-theme': normalized } });
   }
 
   // Client only: also set the attribute imperatively (so runtime theme
@@ -56,8 +71,8 @@ const applySiteTheme = (themeKey, head) => {
   // for themes that ship JS-only design tokens (e.g. the bundled `base`
   // theme has no theme.css).
   if (typeof document !== 'undefined') {
-    document.documentElement.dataset.siteTheme = resolved;
-    applyThemeVariables(resolved);
+    document.documentElement.dataset.siteTheme = normalized;
+    applyThemeVariables(normalized);
   }
 };
 
