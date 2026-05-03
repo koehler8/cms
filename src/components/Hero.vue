@@ -7,7 +7,7 @@
 >
     <div class="container text-center hero-content hero-inner">
       <div class="hero-eyebrow fade-up-in js-scroll-fade" style="--fade-up-delay: 0s">
-        <h2
+        <p
           :class="[
             'h4',
             'text-uppercase',
@@ -16,9 +16,9 @@
           ]"
         >
           {{ tagLine }}
-        </h2>
+        </p>
       </div>
-      <h3
+      <h1
         :class="[
           'display-heading',
           'text-uppercase',
@@ -38,7 +38,7 @@
         >
           {{ part }}
         </span>
-      </h3>
+      </h1>
       <div
         class="hero-cta-stack fade-up-in js-scroll-fade"
         style="--fade-up-delay: 0.2s"
@@ -256,8 +256,9 @@ function getHeaderOffset() {
   letter-spacing: 0.12em;
   font-size: clamp(1.1rem, 1.5vw, 1.55rem);
   line-height: 1.35;
-  color: var(--hero-text-color, var(--ui-text-primary, var(--brand-fg-100, #111)));
+  color: var(--hero-eyebrow-color, var(--brand-hero-text-on-dark, var(--brand-hero-text, #f0eaf3)));
   border-bottom: 1px solid currentColor;
+  margin: 0;
 }
 
 .hero-headline {
@@ -266,7 +267,7 @@ function getHeaderOffset() {
   line-height: 1.08;
   margin-bottom: clamp(18px, 2.5vw, 28px);
   letter-spacing: 0.04em;
-  color: var(--hero-text-color, var(--ui-text-primary, var(--brand-fg-100, #111)));
+  color: var(--hero-text-color, var(--brand-hero-text-on-dark, var(--brand-hero-text, #f0eaf3)));
 }
 
 .promo-surface {

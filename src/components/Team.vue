@@ -337,7 +337,9 @@ const buildSocialAriaLabel = (memberName, social) => {
   font-size: 0.72rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--ui-text-muted, var(--brand-border-highlight, rgba(79, 108, 240, 0.8)));
+  /* AA-safe muted text on the white card. Don't fall through to a brand
+     color rgba — it composites below 4.5:1. */
+  color: var(--team-role-color, var(--ui-text-muted, #54627b));
 }
 
 .team-card__bio {

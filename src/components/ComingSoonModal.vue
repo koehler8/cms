@@ -68,12 +68,20 @@ const props = defineProps({
 const emit = defineEmits(['close']);
 
 const dialogRef = ref(null);
+const previousFocusedElement = ref(null);
 const focusableSelector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 const dialogTitleId = computed(() => 'coming-soon-title');
 const dialogDescriptionId = computed(() => 'coming-soon-message');
 
 const emitClose = () => {
   emit('close');
+};
+
+const onDocumentKeydown = (event) => {
+  if (event.key === 'Escape' || event.key === 'Esc') {
+    event.preventDefault();
+    emitClose();
+  }
 };
 
 const trapFocus = (event) => {
@@ -103,6 +111,9 @@ watch(
   (isOpen) => {
     if (typeof document === 'undefined') return;
     if (isOpen) {
+      // Capture whatever was focused before the modal opened so we can
+      // restore focus on close (WCAG 2.4.3 Focus Order).
+      previousFocusedElement.value = document.activeElement;
       if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
         window.requestAnimationFrame(() => {
           dialogRef.value?.focus();
@@ -111,8 +122,15 @@ watch(
         dialogRef.value?.focus();
       }
       document.addEventListener('keydown', trapFocus);
+      document.addEventListener('keydown', onDocumentKeydown);
     } else {
       document.removeEventListener('keydown', trapFocus);
+      document.removeEventListener('keydown', onDocumentKeydown);
+      const previous = previousFocusedElement.value;
+      if (previous && typeof previous.focus === 'function') {
+        previous.focus();
+      }
+      previousFocusedElement.value = null;
     }
   }
 );
@@ -121,12 +139,14 @@ onMounted(() => {
   if (typeof document === 'undefined') return;
   if (props.open) {
     document.addEventListener('keydown', trapFocus);
+    document.addEventListener('keydown', onDocumentKeydown);
   }
 });
 
 onBeforeUnmount(() => {
   if (typeof document === 'undefined') return;
   document.removeEventListener('keydown', trapFocus);
+  document.removeEventListener('keydown', onDocumentKeydown);
 });
 </script>
 
@@ -212,19 +232,31 @@ onBeforeUnmount(() => {
 
 .coming-soon-close {
   position: absolute;
-  top: 0.75rem;
-  right: 0.75rem;
+  top: 0.5rem;
+  right: 0.5rem;
   background: transparent;
   border: none;
   font-size: 1.5rem;
   line-height: 1;
   cursor: pointer;
-  color: #888;
-  padding: 0.25rem;
+  /* AA-safe color (#595959 = 7:1 on white) and a 32×32 hit area for
+     2.5.8 Target Size (Minimum). */
+  color: #595959;
+  padding: 0;
+  min-width: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
 }
 
 .coming-soon-close:hover,
-.coming-soon-close:focus {
+.coming-soon-close:focus-visible {
   color: #111111;
+}
+.coming-soon-close:focus-visible {
+  outline: 2px solid #1f2a44;
+  outline-offset: 2px;
 }
 </style>

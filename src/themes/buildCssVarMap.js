@@ -68,6 +68,12 @@ export function buildCssVarMap(manifest) {
   const radii = tokens.radii || {};
   const elevation = tokens.elevation || {};
   const utility = tokens.utility || {};
+  // Section-chrome blocks for surfaces that pair text with non-default
+  // backgrounds. Components read these to avoid the fallback-chain trap
+  // (e.g. dark hero surface + light --ui-text-primary fallback = invisible).
+  const hero = tokens.hero || {};
+  const footer = tokens.footer || {};
+  const plan = tokens.plan || {};
 
   assignPrefixed(
     vars,
@@ -230,6 +236,25 @@ export function buildCssVarMap(manifest) {
 
   setVar(vars, '--status-price-value-color', palette.accent || palette.primary || text.primary);
   setVar(vars, '--status-price-value-shadow', elevation.raised);
+
+  // Hero text — paired with the hero surface to keep contrast intact when
+  // a consumer overrides the hero bg. textOnDark is the fallback when no
+  // hero.text is set.
+  setVar(vars, '--brand-hero-text', hero.text || text.primary);
+  setVar(vars, '--brand-hero-text-on-dark', hero.textOnDark || text.onDark || text.inverse);
+  setVar(vars, '--brand-hero-eyebrow', hero.eyebrow || palette.primary);
+
+  // Footer chrome — FooterMinimal's default bg is dark, so it reads
+  // these instead of falling through --ui-text-primary (a light-on-light trap).
+  setVar(vars, '--brand-footer-text', footer.text || text.onDark || text.inverse);
+  setVar(vars, '--brand-footer-text-muted', footer.textMuted || text.onDarkMuted);
+  setVar(vars, '--brand-footer-link-color', footer.linkColor || footer.text || text.onDark || text.inverse);
+  setVar(vars, '--brand-footer-link-hover', footer.linkHover || '#ffffff');
+
+  // Plan card chrome — same dark-surface pairing.
+  setVar(vars, '--brand-plan-card-text', plan.cardText || text.inverse);
+  setVar(vars, '--brand-plan-card-muted-text', plan.cardMutedText || text.onDarkMuted);
+  setVar(vars, '--brand-plan-step-ring', plan.stepRing);
 
   return vars;
 }

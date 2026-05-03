@@ -220,9 +220,13 @@ function scrollTargetWithOffset(target) {
   padding: 14px 24px;
   border: none;
   border-radius: var(--brand-button-radius, 14px);
+  /* The default 3-stop gradient previously failed contrast at the mid stop
+     (#0a0a0d on #9a2eff = 3.96:1). Mid stop darkened to #7e23d5 → 5.34:1
+     with the dark text. Sites overriding --brand-primary-cta-gradient
+     are responsible for verifying contrast against --brand-primary-cta-text. */
   background: var(
     --brand-primary-cta-gradient,
-    linear-gradient(135deg, #ff2d86 0%, #9a2eff 55%, #27f3ff 100%)
+    linear-gradient(135deg, #ff2d86 0%, #7e23d5 55%, #2bb8d9 100%)
   );
   color: var(--brand-primary-cta-text, #0a0a0d);
   font-size: clamp(0.95rem, 2.5vw, 1.05rem);

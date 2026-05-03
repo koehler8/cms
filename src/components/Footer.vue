@@ -2,10 +2,10 @@
   <footer class="site-footer ui-footer" data-analytics-section="footer">
     <div class="container ui-footer__grid">
       <div class="ui-footer__brand">
-        <a class="ui-footer__logo" href="/" aria-label="Return home">
+        <a class="ui-footer__logo" href="/">
           <img
             :src="logoSrc"
-            :alt="siteName"
+            :alt="`${siteName} – home`"
             class="site-footer__logo-img"
             loading="lazy"
             decoding="async"
@@ -25,6 +25,7 @@
                 rel="noopener noreferrer"
               >
                 <span>{{ link.text }}</span>
+                <span class="ui-footer__sr-only">(opens in a new tab)</span>
                 <span class="ui-footer__link-icon" aria-hidden="true">&gt;</span>
               </a>
             </li>
@@ -61,5 +62,17 @@ const footerLinks = computed(() =>
 
 .ui-footer__text {
   margin-bottom: 0;
+}
+
+.ui-footer__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>

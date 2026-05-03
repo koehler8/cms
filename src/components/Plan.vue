@@ -94,7 +94,8 @@ const planItems = computed(() =>
   width: 70px;
   height: 70px;
   border-radius: 50%;
-  border: 3px solid var(--plan-step-border, rgba(255, 255, 255, 0.3));
+  /* 3:1+ against the dark plan-card surface (WCAG 1.4.11). */
+  border: 3px solid var(--plan-step-border, var(--brand-plan-step-ring, rgba(255, 255, 255, 0.5)));
   color: var(--plan-step-color, #ffffff);
   display: inline-flex;
   align-items: center;
@@ -107,10 +108,12 @@ const planItems = computed(() =>
   font-size: 1.15rem;
   font-weight: 600;
   margin: 0;
-  color: var(--plan-card-title, var(--ui-text-primary, #ffffff));
+  /* Dark plan-card surface needs light text. Don't fall through to
+     --ui-text-primary (dark) — that's the FOUC trap that bit FooterMinimal. */
+  color: var(--plan-card-title, var(--brand-plan-card-text, #ffffff));
 }
 
 .plan-card__description {
-  color: var(--ui-text-muted, rgba(255, 255, 255, 0.78));
+  color: var(--plan-card-description, var(--brand-plan-card-muted-text, #c8c2cf));
 }
 </style>

@@ -28,9 +28,14 @@
   </head>
   <!-- Google Analytics is loaded dynamically after user consent -->
   <body>
-    <main>
-      <div id="app"></div>
-    </main>
+    <noscript>
+      <style>
+        /* Scroll-reveal targets stay opacity:0 until JS observes them. If JS
+           never runs, force them visible so SSG content remains accessible. */
+        .fade-up-in { opacity: 1 !important; transform: none !important; }
+      </style>
+    </noscript>
+    <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

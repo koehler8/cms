@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.0.0-beta.17
+
+### WCAG 2.2 AA pass on the bundled components and base theme
+
+Audited the framework against WCAG 2.2 Level AA and applied the fixes that block conformance. Sites using `theme: "base"` and the bundled components inherit the improvements; sites with their own theme keep their palette but pick up the structural fixes (skip link, form labels, focus management, target sizes, semantic landmarks).
+
+**Base theme palette** (`themes/base/theme.config.js`)
+
+Re-balanced every text-on-bg combination the bundled components actually render. The previous values for `palette.primary` (`#4f6cf0`), `palette.accent` (`#f18f3b`), `field.inputPlaceholder` (composited 64% alpha), and the status colors all failed AA at 4.5:1 by varying margins.
+
+- `palette.primary` `#4f6cf0` → `#4361dd` (4.43 → 4.91 on white).
+- `palette.accent` `#f18f3b` → `#b45a00` (2.40 → 4.51 on white). The original orange is preserved as `palette.accentDecorative` for fills/icons only.
+- `field.inputPlaceholder` `rgba(84, 98, 123, 0.64)` → solid `#54627b` (2.82 → 5.66 on white). Same change in `utility.inputPlaceholder` and the `.ui-form-control::placeholder` fallback in `base.css`.
+- Status `palette.{success,warning,critical}` retained as fill colors; new sibling tokens `successText` / `warningText` / `criticalText` (5.99 / 5.13 / 5.43 on white) for status messaging where the value is rendered as text.
+- Primary CTA gradient lighter stop darkened so white-on-gradient passes across the full button surface.
+- New top-level token blocks for surfaces that pair text with a non-default background — `tokens.hero`, `tokens.footer`, `tokens.plan` — exposed as `--brand-hero-*`, `--brand-footer-*`, `--brand-plan-*` CSS variables (see `buildCssVarMap.js`). These eliminate the "fallback chain reaches a token designed for a different surface" trap that left FooterMinimal text invisible on its own dark background, the Hero headline invisible on the dark hero surface, and the Plan card title at 1.05:1 on its dark card.
+
+**Built-in components**
+
+- `Home.vue` — adds a focus-visible "Skip to main content" link as the first focusable element on the page, gives `<main>` `id="main-content"` + `tabindex="-1"`, and sets `html { scroll-padding-top }` so the sticky header doesn't obscure focused targets after in-page navigation. The duplicate `<main>` previously emitted by `templates/index.html` is gone.
+- `templates/index.html` — drops the outer `<main>` wrapper and adds a `<noscript>` style override that forces scroll-reveal targets visible when JS doesn't run.
+- `Header.vue` — `<nav aria-label="Primary">`, descriptive `aria-label` on the home link, locale dropdown gains ESC-to-close and focus-out dismissal with focus restoration to the trigger button. Removed the mismatched `aria-haspopup="true"` on the disclosure (the dropdown isn't a `role="menu"`).
+- `Hero.vue` — promotes the headline from `<h3>` to `<h1>` (every page needs exactly one h1) and demotes the eyebrow `<h2>` to a `<p>` so the document outline isn't filled with non-heading copy. Reads from `--brand-hero-text` / `--brand-hero-text-on-dark` so the dark hero surface gets light text by default.
+- `Contact.vue` — every input now has a real `<label>`, plus visible required `*` indicators, `aria-required="true"`, `autocomplete` hints (`name`, `email`, `tel`), and a `role="status"` `aria-live="polite"` `#msg` region so submission feedback is announced. The challenge input is wired to its question + hint via `aria-describedby` and gets `aria-invalid="true"` on a wrong answer.
+- `ComingSoonModal.vue` — captures `previousFocusedElement` on open and restores focus on close (matching `IntroGate`), close button bumped to a 32×32 hit area with AA-safe color (`#595959`) and a visible `:focus-visible` outline. Adds a global `keydown` ESC handler so dismissal works regardless of where focus is inside the dialog.
+- `Footer.vue` — adds a visually-hidden "(opens in a new tab)" suffix to external links, removes the redundant `aria-label="Return home"` on the logo (the alt now reads `${siteName} – home`).
+- `FooterMinimal.vue`, `Plan.vue`, `Team.vue`, `Portfolio.vue`, `StickyCTA.vue` — re-pointed text colors at the new chrome tokens so default rendering passes contrast; `Portfolio` cards' overlay link now reads `View ${project.title}` instead of the generic "Visit portfolio link"; `Portfolio` filters got a visible `:focus-visible` outline; `BackToTop` got the same.
+
+**Migration**
+
+Sites on `theme: "base"` will see the palette shift slightly more saturated/darker — primary blue and accent orange both deepen by a perceptual notch. Sites with custom themes are unaffected by the palette change but inherit every structural/component fix automatically. If a site relied on the old `palette.accent` orange as decorative fill, it can read `palette.accentDecorative` instead (the original `#f18f3b` is preserved under that key).
+
+`Hero.vue`'s `<h2>` eyebrow → `<p>` and `<h3>` headline → `<h1>` is a semantic change: any CSS scoped at `:deep(.hero-eyebrow h2)` or `:deep(.hero-headline h3)` from a wrapping component would break. The class names (`.hero-eyebrow__text`, `.hero-headline`) are unchanged and remain the right hooks.
+
+`templates/index.html` no longer wraps `#app` in a `<main>` — sites that override the template should remove their own outer `<main>` so the framework's `<main id="main-content">` (now in `Home.vue`) is the only landmark.
+
+Tests: 336 passing (no test changes needed — the contracts are unchanged).
+
 ## 1.0.0-beta.16
 
 ### `cms-create-site` CLI

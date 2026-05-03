@@ -3,7 +3,7 @@
     <div class="container" role="presentation">
       <div class="footer-grid">
         <a class="footer-logo" href="/">
-          <img :src="logoSrc" :alt="siteName" class="img-fluid" />
+          <img :src="logoSrc" :alt="`${siteName} – home`" class="img-fluid" />
         </a>
         <p class="footer-text">{{ footerText }}</p>
         <p v-if="footerDisclaimer" class="footer-disclaimer">
@@ -78,7 +78,10 @@ const footerDisclaimer = computed(() => footerContent.value?.disclaimer || '');
     --footer-bg,
     color-mix(in srgb, var(--brand-bg-900, #070410) 88%, var(--brand-bg-800, #120b1f) 12%)
   );
-  color: var(--footer-text, var(--ui-text-primary, var(--brand-card-text, #f0eaf3)));
+  /* Read from --brand-footer-text (defined by the theme via tokens.footer.text)
+     so the default light/text-on-dark pairing always holds. The intermediate
+     --footer-text exists for site-level overrides. */
+  color: var(--footer-text, var(--brand-footer-text, #f0eaf3));
   padding: 48px 0 28px;
 }
 
@@ -96,7 +99,7 @@ const footerDisclaimer = computed(() => footerContent.value?.disclaimer || '');
 .footer-text {
   max-width: 520px;
   margin: 0;
-  color: var(--footer-text, var(--ui-text-primary, var(--brand-card-text, #f0eaf3)));
+  color: var(--footer-text, var(--brand-footer-text, #f0eaf3));
   font-size: 0.9rem;
   line-height: 1.55;
 }
@@ -107,10 +110,7 @@ const footerDisclaimer = computed(() => footerContent.value?.disclaimer || '');
   font-size: 0.75rem;
   font-style: italic;
   line-height: 1.6;
-  color: var(
-    --footer-disclaimer,
-    color-mix(in srgb, var(--ui-text-muted, var(--brand-card-text, #f0eaf3)) 70%, transparent)
-  );
+  color: var(--footer-disclaimer, var(--brand-footer-text-muted, #c8c2cf));
 }
 
 .footer-links {
@@ -124,18 +124,19 @@ const footerDisclaimer = computed(() => footerContent.value?.disclaimer || '');
 }
 
 .footer-link {
-  color: var(
-    --footer-link-color,
-    color-mix(in srgb, var(--ui-text-primary, var(--brand-card-text, #f0eaf3)) 75%, transparent)
-  );
+  color: var(--footer-link-color, var(--brand-footer-link-color, #f0eaf3));
   text-decoration: none;
   transition: color 0.2s ease, text-decoration 0.2s ease;
 }
 
 .footer-link:hover,
 .footer-link:focus-visible {
-  color: var(--footer-link-hover, var(--brand-accent-electric, #27f3ff));
+  color: var(--footer-link-hover, var(--brand-footer-link-hover, #ffffff));
   text-decoration: underline;
+}
+.footer-link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
 }
 
 @media (prefers-reduced-motion: reduce) {

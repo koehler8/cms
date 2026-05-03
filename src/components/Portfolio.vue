@@ -72,7 +72,7 @@
             </div>
             <span class="portfolio-tag ui-label-sm">{{ project.displayTags || project.tags }}</span>
             <h3 class="portfolio-title ui-title-md">{{ project.title }}</h3>
-            <a class="portfolio-card__link" :href="project.href" aria-label="Visit portfolio link"></a>
+            <a class="portfolio-card__link" :href="project.href" :aria-label="`View ${project.title}`"></a>
           </div>
         </div>
       </transition-group>
@@ -340,9 +340,13 @@ function handleAfterLeave() {
 
 .portfolio-filter:hover,
 .portfolio-filter:focus-visible {
-  color: var(--portfolio-filter-hover-color, var(--brand-accent-electric, #4f6cf0));
-  border-color: var(--portfolio-filter-hover-border, rgba(79, 108, 240, 0.5));
+  color: var(--portfolio-filter-hover-color, var(--brand-accent-electric, #4361dd));
+  border-color: var(--portfolio-filter-hover-border, rgba(67, 97, 221, 0.55));
   transform: translateY(-1px);
+}
+.portfolio-filter:focus-visible {
+  outline: 2px solid var(--portfolio-filter-focus-outline, var(--brand-accent-electric, #4361dd));
+  outline-offset: 2px;
 }
 
 .portfolio-filter--active {

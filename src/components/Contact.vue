@@ -21,42 +21,103 @@
 
           <div class="contact-grid">
             <div class="contact-field">
-              <input class="ui-form-control" type="text" :placeholder="placeholders.name" name="entry.757423084" required>
+              <label class="contact-label ui-label-sm" for="contact-name">
+                {{ placeholders.name }}<span class="contact-required" aria-hidden="true">*</span>
+              </label>
+              <input
+                id="contact-name"
+                class="ui-form-control"
+                type="text"
+                :placeholder="placeholders.name"
+                name="entry.757423084"
+                autocomplete="name"
+                required
+                aria-required="true"
+              >
             </div>
             <div class="contact-field">
-              <input class="ui-form-control" type="email" :placeholder="placeholders.email" name="entry.886201522" required>
+              <label class="contact-label ui-label-sm" for="contact-email">
+                {{ placeholders.email }}<span class="contact-required" aria-hidden="true">*</span>
+              </label>
+              <input
+                id="contact-email"
+                class="ui-form-control"
+                type="email"
+                :placeholder="placeholders.email"
+                name="entry.886201522"
+                autocomplete="email"
+                required
+                aria-required="true"
+              >
             </div>
             <div class="contact-field">
-              <input class="ui-form-control" type="text" :placeholder="placeholders.subject" name="entry.270717970">
+              <label class="contact-label ui-label-sm" for="contact-subject">{{ placeholders.subject }}</label>
+              <input
+                id="contact-subject"
+                class="ui-form-control"
+                type="text"
+                :placeholder="placeholders.subject"
+                name="entry.270717970"
+              >
             </div>
             <div class="contact-field">
-              <input class="ui-form-control" type="tel" :placeholder="placeholders.phone" name="entry.1570175907">
+              <label class="contact-label ui-label-sm" for="contact-phone">{{ placeholders.phone }}</label>
+              <input
+                id="contact-phone"
+                class="ui-form-control"
+                type="tel"
+                :placeholder="placeholders.phone"
+                name="entry.1570175907"
+                autocomplete="tel"
+              >
             </div>
             <div class="contact-field contact-field--full">
-              <textarea class="ui-form-control ui-form-textarea" rows="6" :placeholder="placeholders.message" name="entry.1743462629" required></textarea>
+              <label class="contact-label ui-label-sm" for="contact-message">
+                {{ placeholders.message }}<span class="contact-required" aria-hidden="true">*</span>
+              </label>
+              <textarea
+                id="contact-message"
+                class="ui-form-control ui-form-textarea"
+                rows="6"
+                :placeholder="placeholders.message"
+                name="entry.1743462629"
+                required
+                aria-required="true"
+              ></textarea>
             </div>
             <div class="contact-field contact-field--full">
-              <label class="contact-label ui-label-sm">{{ challenge.label }}</label>
+              <label class="contact-label ui-label-sm" for="contact-challenge">
+                {{ challenge.label }}<span class="contact-required" aria-hidden="true">*</span>
+              </label>
               <small
                 v-if="challenge.instructions"
+                id="contact-challenge-hint"
                 class="contact-hint ui-form-hint"
                 :class="{ 'contact-hint--inline': challenge.label.length < 18 }"
               >
                 {{ challenge.instructions }}
               </small>
               <div class="ui-input-group">
-                <span class="ui-input-group__addon">{{ challenge.question }}</span>
+                <span class="ui-input-group__addon" id="contact-challenge-prompt">{{ challenge.question }}</span>
                 <input
+                  id="contact-challenge"
                   type="text"
                   class="ui-input-group__input"
                   :placeholder="challenge.placeholder"
                   v-model="challengeAnswer"
                   autocomplete="off"
                   required
+                  aria-required="true"
+                  :aria-describedby="challengeDescribedBy"
+                  :aria-invalid="hasChallengeError ? 'true' : null"
                 >
               </div>
             </div>
           </div>
+
+          <p class="contact-required-note">
+            <span class="contact-required" aria-hidden="true">*</span> Required fields
+          </p>
 
           <div class="contact-actions">
             <div
@@ -69,7 +130,7 @@
             </div>
             <button class="primary-button contact-submit" type="submit">{{ submitLabel }}</button>
           </div>
-          <small id="msg" class="contact-feedback"></small>
+          <p id="msg" class="contact-feedback" role="status" aria-live="polite" aria-atomic="true"></p>
         </form>
       </div>
     </div>
@@ -77,7 +138,7 @@
 </template>
 
 <script setup>
-import { inject, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, inject, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { trackEvent } from '../utils/analytics.js';
 
 const title = ref('Contact Us')
@@ -129,6 +190,14 @@ const challenge = reactive({
 })
 
 const challengeAnswer = ref('')
+const hasChallengeError = ref(false)
+
+const challengeDescribedBy = computed(() => {
+  const ids = ['contact-challenge-prompt']
+  if (challenge.instructions) ids.push('contact-challenge-hint')
+  if (hasChallengeError.value) ids.push('msg')
+  return ids.join(' ')
+})
 
 let expectedChallengeAnswer = ''
 let activeChallengeType = 'arithmetic'
@@ -405,12 +474,14 @@ onMounted(() => {
 
     if (!isChallengeAnswerCorrect(challengeAnswer.value)) {
       msg.textContent = challenge.errorMessage
+      hasChallengeError.value = true
       emitSubmitEvent('challenge_failed')
       challengeAnswer.value = ''
       generateChallenge()
       return
     }
 
+    hasChallengeError.value = false
     msg.textContent = pendingMessage.value
 
     try {
@@ -489,6 +560,17 @@ onUnmounted(() => {
   display: block;
   margin-bottom: 6px;
   color: var(--contact-label-color, var(--ui-text-primary, #1f2a44));
+}
+
+.contact-required {
+  margin-left: 0.2em;
+  color: var(--contact-required-color, #a83838); /* AA-safe critical text */
+}
+
+.contact-required-note {
+  margin: -8px 0 0;
+  font-size: 0.8rem;
+  color: var(--contact-required-note-color, var(--ui-text-muted, #54627b));
 }
 
 .contact-hint--inline {

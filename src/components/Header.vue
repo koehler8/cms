@@ -8,10 +8,10 @@
       class="site-header__section ui-header__section"
       :class="{ 'ui-header__section--compact': isHeaderCompact }"
     >
-      <nav class="site-header__nav">
+      <nav class="site-header__nav" aria-label="Primary">
         <div class="container">
           <div class="site-header__inner">
-            <a href="/" ref="logoLinkRef" class="site-header__logo logo-flash-trigger">
+            <a href="/" ref="logoLinkRef" class="site-header__logo logo-flash-trigger" :aria-label="`${siteName || 'Home'} – home`">
               <!--
                 Logo slot. Default rendering: <img> if site/assets/img/logo.png
                 exists or `content.header.logoSrc` is set, otherwise text from
@@ -56,6 +56,8 @@
               v-if="showLocaleLinks && availableLocales.length > 1"
               ref="localeWrapperRef"
               class="locale-wrapper"
+              @keydown.esc="closeLocaleMenu($event, 'escape')"
+              @focusout="onLocaleWrapperFocusOut"
             >
               <button
                 id="languages-dropdown-invoker-2"
@@ -63,8 +65,8 @@
                 class="locale-toggle"
                 type="button"
                 aria-controls="languages-dropdown-2"
-                aria-haspopup="true"
                 :aria-expanded="isLangOpen ? 'true' : 'false'"
+                aria-label="Change language"
                 @click="toggleLocaleMenu"
               >
                 <span class="locale-flag" aria-hidden="true">
@@ -219,6 +221,37 @@ const updateLocaleMenuPosition = () => {
         });
       }
     }
+  };
+
+  // Closes the dropdown and (for keyboard dismissal) returns focus to the
+  // toggle button. Without focus restoration, ESC would leave focus on a
+  // hidden menu item — failing 1.4.13 (Content on Hover or Focus).
+  const closeLocaleMenu = (event, trigger = 'escape') => {
+    if (!isLangOpen.value) return;
+    if (event) {
+      event.preventDefault?.();
+      event.stopPropagation?.();
+    }
+    isLangOpen.value = false;
+    trackEvent('header_locale_menu_toggle', {
+      state: 'close',
+      trigger,
+      active_locale: currentLocale.value || 'en',
+    });
+    if (trigger === 'escape') {
+      nextTick(() => langButtonRef.value?.focus());
+    }
+  };
+
+  // Closes the menu when keyboard focus leaves the wrapper entirely.
+  // Without this, Tab would walk past the dropdown but leave it visible
+  // and clickable — also fails 1.4.13's "dismissable" requirement.
+  const onLocaleWrapperFocusOut = (event) => {
+    if (!isLangOpen.value) return;
+    const wrapper = localeWrapperRef.value;
+    const next = event.relatedTarget;
+    if (wrapper && next && wrapper.contains(next)) return;
+    closeLocaleMenu(null, 'focusout');
   };
 
   const prefersReducedMotion = () =>
