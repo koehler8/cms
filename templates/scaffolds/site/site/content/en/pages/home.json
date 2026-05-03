@@ -1,0 +1,8 @@
+{
+  "components[0]": "Header",
+  "components[1]": "Hero",
+  "components[2]": "Footer",
+  "content.promo.mainText": "__DISPLAY_NAME__",
+  "content.promo.tagLine": "Welcome",
+  "path": "/"
+}

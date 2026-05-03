@@ -1,0 +1,22 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - nvm install 20.19.0 && nvm use 20.19.0
+        # Use `npm install` (not `npm ci`) so the build tolerates
+        # lockfile/npm-version drift. See CLAUDE.md → "Lockfile and
+        # npm version" for the rationale.
+        - npm install --prefer-offline --no-audit --no-fund
+        - npm run generate:public-assets
+    build:
+      commands:
+        - npm run build:ssg
+  artifacts:
+    baseDirectory: dist
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+      - .npm/**/*

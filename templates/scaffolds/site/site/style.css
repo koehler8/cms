@@ -1,0 +1,4 @@
+/* Site-specific style overrides. Loaded async by the CMS bootstrap, so
+ * fine for things that wouldn't cause a visible flash if they applied
+ * a few hundred ms late. For critical-path styles (above-the-fold,
+ * hide-this-default), see CLAUDE.md → Styles. */

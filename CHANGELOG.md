@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.0.0-beta.16
+
+### `cms-create-site` CLI
+
+Third bin in the scaffolding family (alongside `cms-create-theme` and `cms-create-extension`). Bootstraps a complete new site repo from one command:
+
+```bash
+npx cms-create-site cityofangels
+# → site-cityofangels/{package.json, vite.config.js, amplify.yml, .nvmrc,
+#   .gitignore, .env.example, README.md, CLAUDE.md, site/content/...}
+```
+
+The scaffolded repo includes a substantial **`CLAUDE.md` template** with a "where things go" navigation table covering content / components / themes / extensions / locales / pages — so future Claude sessions opening the repo immediately have the right mental model. The same template includes the lockfile/npm-version rules (matching what sister sites already document) and pointers at the other two scaffolding CLIs.
+
+The site template ships with a working home page (`Header` + `Hero` + `Footer`) using bundled CMS components and placeholder copy — `npm run dev` produces a live page from the moment scaffolding finishes, so the site owner can see the foundation before customizing.
+
+### Scaffold internals
+
+- `runScaffold` now accepts `kind: 'site'` alongside `theme` and `extension`. Default target dir is `<cwd>/site-<slug>/` (matches the conventional `koehler8/site-<slug>` repo naming) instead of `themes/<slug>` or `extensions/<slug>`.
+- `collectTemplateFiles` no longer skips dotfiles wholesale. Site templates legitimately include `.nvmrc`, `.gitignore`, `.env.example`. Only OS junk (`.DS_Store`, `Thumbs.db`, `.git`) is now skipped.
+
+5 new specs in `tests/scripts/scaffold.spec.js` cover the site scaffold (336/336 passing).
+
 ## 1.0.0-beta.15
 
 ### Remove built-in `Loading…` placeholder; expose loading state via inject

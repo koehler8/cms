@@ -53,11 +53,16 @@ async function pathExists(p) {
   }
 }
 
+// Files in the template tree that should never be copied into the
+// scaffolded output (OS junk, editor artifacts). Dotfiles in general
+// ARE copied — site templates need .nvmrc, .gitignore, .env.example.
+const TEMPLATE_SKIP = new Set(['.DS_Store', 'Thumbs.db', '.git']);
+
 async function collectTemplateFiles(dir) {
   const out = [];
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
-    if (entry.name.startsWith('.')) continue;
+    if (TEMPLATE_SKIP.has(entry.name)) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       out.push(...(await collectTemplateFiles(full)));
@@ -86,7 +91,7 @@ function applySubstitutions(content, subs) {
  * @returns {Promise<{ok: boolean, slug?: string, targetDir?: string, message?: string}>}
  */
 export async function runScaffold({ kind, argv, cwd = process.cwd(), frameworkRoot } = {}) {
-  if (kind !== 'theme' && kind !== 'extension') {
+  if (kind !== 'theme' && kind !== 'extension' && kind !== 'site') {
     return { ok: false, message: `unknown kind: ${kind}` };
   }
   const root = frameworkRoot || defaultFrameworkRoot();
@@ -115,10 +120,18 @@ export async function runScaffold({ kind, argv, cwd = process.cwd(), frameworkRo
   const displayName = toDisplayName(slug);
   const subs = { __SLUG__: slug, __DISPLAY_NAME__: displayName };
   const templateDir = path.join(root, 'templates', 'scaffolds', kind);
-  const defaultDirName = kind === 'theme' ? 'themes' : 'extensions';
-  const targetDir = args.out
-    ? path.resolve(cwd, args.out)
-    : path.join(cwd, defaultDirName, slug);
+  // Default target dir: themes/<slug>/ for themes, extensions/<slug>/ for
+  // extensions, site-<slug>/ (sibling of cwd) for sites — matches the
+  // conventional koehler8/site-<slug> repo naming.
+  let defaultTarget;
+  if (kind === 'site') {
+    defaultTarget = path.join(cwd, `site-${slug}`);
+  } else if (kind === 'theme') {
+    defaultTarget = path.join(cwd, 'themes', slug);
+  } else {
+    defaultTarget = path.join(cwd, 'extensions', slug);
+  }
+  const targetDir = args.out ? path.resolve(cwd, args.out) : defaultTarget;
 
   if (!(await pathExists(templateDir))) {
     return {
@@ -153,8 +166,7 @@ export async function runScaffold({ kind, argv, cwd = process.cwd(), frameworkRo
 }
 
 function successHeader(kind, slug, targetRel) {
-  const fileCount = kind === 'theme' ? 5 : 4;
-  return `✓ Scaffolded ${kind} "${slug}" → ${targetRel}/ (${fileCount} files)`;
+  return `✓ Scaffolded ${kind} "${slug}" → ${targetRel}/`;
 }
 
 function nextSteps(kind, slug, targetRel) {
@@ -173,33 +185,57 @@ function nextSteps(kind, slug, targetRel) {
       '',
     ].join('\n');
   }
+  if (kind === 'extension') {
+    return [
+      '',
+      'Next steps:',
+      '  1. Add to your site\'s package.json dependencies:',
+      `       "cms-ext-${slug}": "file:./${targetRel}"`,
+      '  2. Run `npm install` to symlink it into node_modules.',
+      '  3. Add to vite.config.js\'s extensions array:',
+      `       extensions: ['cms-ext-${slug}'],`,
+      `  4. Add components to ${targetRel}/components/ as needed (see ${targetRel}/README.md).`,
+      `     Or, for one-off site-only components, prefer site/components/ instead.`,
+      '',
+    ].join('\n');
+  }
+  // site
   return [
     '',
     'Next steps:',
-    '  1. Add to your site\'s package.json dependencies:',
-    `       "cms-ext-${slug}": "file:./${targetRel}"`,
-    '  2. Run `npm install` to symlink it into node_modules.',
-    '  3. Add to vite.config.js\'s extensions array:',
-    `       extensions: ['cms-ext-${slug}'],`,
-    `  4. Add components to ${targetRel}/components/ as needed (see ${targetRel}/README.md).`,
-    `     Or, for one-off site-only components, prefer site/components/ instead.`,
+    `  1. cd ${targetRel}`,
+    '  2. nvm use && npm install',
+    '  3. npm run dev          # Vite dev server on http://localhost:5173',
+    '  4. Read CLAUDE.md       # navigation guide for "where things go"',
+    '',
+    'Then start customizing:',
+    `  - Edit site/content/en/site.json (title, description, theme key)`,
+    `  - Edit site/content/en/pages/home.json (hero copy, components)`,
+    `  - Add a theme:           npx cms-create-theme <slug>`,
+    `  - Add a local extension: npx cms-create-extension <slug>`,
+    `  - Add a one-off Vue component: drop a file in site/components/`,
     '',
   ].join('\n');
 }
 
 function usage(kind) {
-  const cmd = kind === 'theme' ? 'cms-create-theme' : 'cms-create-extension';
-  const dir = kind === 'theme' ? 'themes' : 'extensions';
+  const cmds = { theme: 'cms-create-theme', extension: 'cms-create-extension', site: 'cms-create-site' };
+  const cmd = cmds[kind];
+  const defaultDir = {
+    theme: './themes/<slug>/',
+    extension: './extensions/<slug>/',
+    site: './site-<slug>/',
+  }[kind];
   return `
 Usage: npx ${cmd} <slug> [--out <directory>] [--force]
 
-Scaffolds a new @koehler8/cms ${kind} into the current site.
+Scaffolds a new @koehler8/cms ${kind} into the current directory.
 
 Arguments:
   <slug>          Lowercase kebab-case slug (e.g. "coastal", "lush-canopy").
 
 Options:
-  --out <dir>     Where to create the ${kind}. Defaults to ./${dir}/<slug>/.
+  --out <dir>     Where to create the ${kind}. Defaults to ${defaultDir}.
   --force         Overwrite an existing target directory.
   -h, --help      Show this message.
 `;

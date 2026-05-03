@@ -1,0 +1,16 @@
+node_modules/
+.npm/
+dist/
+.vite/
+.vite-ssg-temp/
+index.html
+.cms-entry.js
+public/
+.env
+.env.local
+.env.*.local
+.DS_Store
+*.swp
+.vscode/
+.idea/
+npm-debug.log*

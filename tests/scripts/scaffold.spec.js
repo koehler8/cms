@@ -153,3 +153,63 @@ describe('runScaffold (extension)', () => {
     expect(result.message).toContain('site/components/');
   });
 });
+
+describe('runScaffold (site)', () => {
+  it('creates the canonical site files under site-<slug>/', async () => {
+    const result = await runScaffold({ kind: 'site', argv: ['demo'], cwd: tempDir });
+    expect(result.ok).toBe(true);
+    const dir = path.join(tempDir, 'site-demo');
+    for (const file of [
+      'package.json', 'vite.config.js', 'amplify.yml', '.nvmrc', '.gitignore',
+      '.env.example', 'README.md', 'CLAUDE.md',
+      'site/content/content.config.json',
+      'site/content/en/site.json',
+      'site/content/en/shared.json',
+      'site/content/en/pages/home.json',
+      'site/style.css',
+    ]) {
+      const stats = await stat(path.join(dir, file));
+      expect(stats.isFile()).toBe(true);
+    }
+  });
+
+  it('uses @koehler8/site-<slug> for the package name and applies display-name substitution', async () => {
+    const result = await runScaffold({ kind: 'site', argv: ['orange-county'], cwd: tempDir });
+    expect(result.ok).toBe(true);
+    const dir = path.join(tempDir, 'site-orange-county');
+
+    const pkg = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8'));
+    expect(pkg.name).toBe('@koehler8/site-orange-county');
+    expect(pkg.dependencies['@koehler8/cms']).toMatch(/beta/);
+    expect(pkg.engines.node).toMatch(/20\.19/);
+
+    const siteJson = JSON.parse(await readFile(path.join(dir, 'site/content/en/site.json'), 'utf8'));
+    expect(siteJson.title).toBe('Orange County');
+
+    const shared = JSON.parse(await readFile(path.join(dir, 'site/content/en/shared.json'), 'utf8'));
+    expect(shared['content.header.logoText']).toBe('Orange County');
+  });
+
+  it('CLAUDE.md template substitutes slug and includes the where-things-go guide', async () => {
+    const result = await runScaffold({ kind: 'site', argv: ['demo'], cwd: tempDir });
+    expect(result.ok).toBe(true);
+    const claude = await readFile(path.join(tempDir, 'site-demo', 'CLAUDE.md'), 'utf8');
+    expect(claude).toContain('# site-demo');
+    expect(claude).toContain('Where things go');
+    expect(claude).toContain('site/content/{locale}/pages/');
+    expect(claude).toContain('site/components/Foo.vue');
+    expect(claude).toContain('npx cms-create-theme');
+    expect(claude).toContain('npx cms-create-extension');
+    expect(claude).not.toContain('__SLUG__');
+    expect(claude).not.toContain('__DISPLAY_NAME__');
+  });
+
+  it('prints site-flavoured next-steps including a CLAUDE.md pointer', async () => {
+    const result = await runScaffold({ kind: 'site', argv: ['demo'], cwd: tempDir });
+    expect(result.message).toContain('cd site-demo');
+    expect(result.message).toContain('nvm use && npm install');
+    expect(result.message).toContain('Read CLAUDE.md');
+    expect(result.message).toContain('cms-create-theme');
+    expect(result.message).toContain('cms-create-extension');
+  });
+});
