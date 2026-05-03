@@ -1,5 +1,6 @@
 import { computed } from 'vue';
 import { extensionComponentDefinitionsBySource, extensionComponentSources, getExtensionContentDefaults } from '../extensions/extensionLoader.js';
+import { getSiteComponent } from '../utils/componentRegistry.js';
 import { APP_VERSION } from '../utils/appInfo.js';
 import { satisfiesMinVersion } from '../utils/semver.js';
 import { validateRequiredContentPaths } from '../utils/contentRequirements.js';
@@ -7,6 +8,8 @@ import { mergeConfigTrees } from '../utils/loadConfig.js';
 
 const extensionDefinitionsBySource = extensionComponentDefinitionsBySource || {};
 const extensionSourcesByName = extensionComponentSources || {};
+
+const SITE_SOURCE = 'site';
 
 const normalizePageKey = (value) => (value || '').toString().trim().toLowerCase();
 const normalizeSourceKey = (value) => (value || '').toString().trim().toLowerCase();
@@ -51,10 +54,46 @@ export function useComponentResolver({ componentKeys, pageContent, currentPage, 
 
         if (!enabled) return null;
 
+        let normalizedSource = normalizeSourceKey(source) || null;
+
+        // ---- Site-local components ---------------------------------
+        // Pages can reference Vue files dropped into `site/components/`
+        // by basename (e.g. site/components/PropertyCard.vue → "PropertyCard").
+        // Resolution priority: site > extension > bundled. Use `site:Name`
+        // to disambiguate when both site and extension/bundled define a
+        // component with the same name.
+        if (normalizedSource === SITE_SOURCE) {
+          const siteComp = getSiteComponent(name);
+          if (!siteComp) {
+            reportExtensionIssue(
+              `Component "site:${name}" is not registered. Add a Vue file to site/components/${name}.vue.`,
+              { component: name, requestedSource: SITE_SOURCE },
+            );
+            return null;
+          }
+          return {
+            key: `site-${name}-${index}`,
+            component: siteComp,
+            configKey: configKey || null,
+            props: {},
+          };
+        }
+        if (!normalizedSource) {
+          const siteComp = getSiteComponent(name);
+          if (siteComp) {
+            return {
+              key: `site-${name}-${index}`,
+              component: siteComp,
+              configKey: configKey || null,
+              props: {},
+            };
+          }
+        }
+        // -------------------------------------------------------------
+
         const availableSources = Array.isArray(extensionSourcesByName[name])
           ? extensionSourcesByName[name]
           : null;
-        let normalizedSource = normalizeSourceKey(source) || null;
 
         if (availableSources && availableSources.length) {
           if (!normalizedSource) {

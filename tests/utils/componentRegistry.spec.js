@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { createRegistry } from '../../src/utils/componentRegistry.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  createRegistry,
+  setSiteComponents,
+  getSiteComponent,
+  getSiteRegistry,
+} from '../../src/utils/componentRegistry.js';
 
 const MockComponent = { name: 'MockComponent', render() {} };
 const MockComponent2 = { name: 'MockComponent2', render() {} };
@@ -83,5 +88,92 @@ describe('createRegistry', () => {
     const registry = createRegistry(modules);
     expect(registry.Null).toBeUndefined();
     expect(registry.Real).toBe(MockComponent);
+  });
+});
+
+describe('setSiteComponents / getSiteComponent', () => {
+  beforeEach(() => {
+    // Reset between tests so leftover registrations don't leak.
+    setSiteComponents({});
+  });
+
+  it('registers components keyed by basename', () => {
+    setSiteComponents({
+      './components/PropertyCard.vue': { default: MockComponent },
+    });
+    expect(getSiteComponent('PropertyCard')).toBe(MockComponent);
+  });
+
+  it('strips subdirectories — basename rules', () => {
+    setSiteComponents({
+      './components/regions/PacificCoast.vue': { default: MockComponent },
+    });
+    expect(getSiteComponent('PacificCoast')).toBe(MockComponent);
+  });
+
+  it('first registration wins on duplicate basenames', () => {
+    setSiteComponents({
+      './components/Card.vue': { default: MockComponent },
+      './components/legacy/Card.vue': { default: MockComponent2 },
+    });
+    expect(getSiteComponent('Card')).toBe(MockComponent);
+  });
+
+  it('unwraps module.default', () => {
+    setSiteComponents({
+      './components/Foo.vue': { default: MockComponent },
+    });
+    expect(getSiteComponent('Foo')).toBe(MockComponent);
+  });
+
+  it('accepts modules where the default export is the component itself', () => {
+    setSiteComponents({
+      './components/Bar.vue': MockComponent,
+    });
+    expect(getSiteComponent('Bar')).toBe(MockComponent);
+  });
+
+  it('returns undefined for unknown names', () => {
+    expect(getSiteComponent('Nope')).toBeUndefined();
+  });
+
+  it('clears prior registrations when called again (HMR-friendly)', () => {
+    setSiteComponents({
+      './components/Old.vue': { default: MockComponent },
+    });
+    expect(getSiteComponent('Old')).toBe(MockComponent);
+
+    setSiteComponents({
+      './components/New.vue': { default: MockComponent2 },
+    });
+    expect(getSiteComponent('Old')).toBeUndefined();
+    expect(getSiteComponent('New')).toBe(MockComponent2);
+  });
+
+  it('tolerates null/missing modules gracefully', () => {
+    setSiteComponents(null);
+    expect(getSiteComponent('Anything')).toBeUndefined();
+    setSiteComponents();
+    expect(getSiteComponent('Anything')).toBeUndefined();
+  });
+
+  it('snapshot via getSiteRegistry returns a copy', () => {
+    setSiteComponents({
+      './components/Foo.vue': { default: MockComponent },
+    });
+    const snap = getSiteRegistry();
+    expect(snap.Foo).toBe(MockComponent);
+    snap.Foo = null;
+    // Mutating the snapshot must not affect the live registry.
+    expect(getSiteComponent('Foo')).toBe(MockComponent);
+  });
+
+  it('accepts a glob result wrapped in `default` (the entry imports as namespace)', () => {
+    // The generated entry does `import * as __cmsSiteComponents from VIRTUAL`
+    // and the virtual module exports `default`. Check we accept both shapes.
+    setSiteComponents({
+      default: { './components/Foo.vue': { default: MockComponent } },
+    });
+    expect(getSiteComponent('Foo')).toBe(MockComponent);
   });
 });

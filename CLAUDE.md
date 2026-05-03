@@ -25,9 +25,9 @@ templates/index.html    EJS-templated HTML shell
 ### Key Patterns
 
 - **One site = one repo**: Each site is a standalone repo with a `site/` directory containing content, assets, and styles.
-- **Virtual modules**: The Vite plugin generates `virtual:cms-config-loader`, `virtual:cms-site-styles`, and `virtual:cms-asset-resolver` to wire site content into the framework at build time.
-- **Singletons**: `loadConfigData`, `ensureSiteStylesLoaded`, `resolveAsset` etc. are initialized once by the generated `.cms-entry.js` to prevent duplicate instances across linked packages.
-- **Three-tier component resolution**: Built-in components -> extension components -> fallback. Components are referenced by name or `source-slug:ComponentName`.
+- **Virtual modules**: The Vite plugin generates `virtual:cms-config-loader`, `virtual:cms-site-styles`, `virtual:cms-asset-resolver`, `virtual:cms-theme-vars.css`, and `virtual:cms-site-components` to wire site content into the framework at build time.
+- **Singletons**: `loadConfigData`, `ensureSiteStylesLoaded`, `resolveAsset`, `setSiteComponents` etc. are initialized once by the generated `.cms-entry.js` to prevent duplicate instances across linked packages.
+- **Three-tier component resolution**: site-local (`site/components/`) → extension → bundled. Most-specific wins. Components are referenced by name; source-qualified syntax (`site:Name` or `slug:Name`) disambiguates.
 - **Content directory**: All translatable copy lives in `site/content/` with per-locale subdirectories (`en/`, `de/`, `ja/`, etc.) that mirror each other's structure. A `content.config.json` at the root specifies the base locale. All files use flat dot-notation keys sorted alphabetically. The base locale is loaded first; selected locale overrides only where keys are specified.
 - **Theme tokens -> CSS vars**: Theme manifests define design tokens; `themeManager.js` converts them to CSS custom properties on `document.documentElement`.
 

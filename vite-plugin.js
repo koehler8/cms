@@ -105,8 +105,12 @@ const VIRTUAL_ASSETS = 'virtual:cms-asset-resolver';
 // <link rel="stylesheet"> in <head>, so theme CSS variables apply during the
 // initial paint instead of after Vue hydrates.
 const VIRTUAL_THEME_VARS = 'virtual:cms-theme-vars.css';
+// Eager glob over `site/components/**/*.vue` so site-local Vue files can be
+// referenced by basename in pages/{pageId}.json `components[]`. Resolution
+// priority: site > extension > bundled (see useComponentResolver).
+const VIRTUAL_SITE_COMPONENTS = 'virtual:cms-site-components';
 
-const VIRTUAL_IDS = new Set([VIRTUAL_CONFIG, VIRTUAL_STYLES, VIRTUAL_ASSETS, VIRTUAL_THEME_VARS]);
+const VIRTUAL_IDS = new Set([VIRTUAL_CONFIG, VIRTUAL_STYLES, VIRTUAL_ASSETS, VIRTUAL_THEME_VARS, VIRTUAL_SITE_COMPONENTS]);
 
 // Entry file name (written to site repo root, gitignored, cleaned up in buildEnd)
 const ENTRY_FILENAME = '.cms-entry.js';
@@ -146,6 +150,7 @@ function buildEntrySource(themePackages = [], extensionPackages = []) {
 import { setConfigLoader } from '@koehler8/cms/utils/loadConfig';
 import { setSiteStyleLoader } from '@koehler8/cms/utils/siteStyles';
 import { setAssetResolver } from '@koehler8/cms/utils/assetResolver';
+import { setSiteComponents } from '@koehler8/cms/utils/componentRegistry';
 ${needsThemeRegister ? `import { registerTheme } from '@koehler8/cms/themes/themeLoader';` : ''}
 ${needsExtRegister ? `import { registerExtension } from '@koehler8/cms/extensions/extensionLoader';` : ''}
 ${themeImports}
@@ -154,11 +159,13 @@ ${extImports}
 import * as __cmsConfig from '${VIRTUAL_CONFIG}';
 import * as __cmsStyles from '${VIRTUAL_STYLES}';
 import * as __cmsAssets from '${VIRTUAL_ASSETS}';
+import * as __cmsSiteComponents from '${VIRTUAL_SITE_COMPONENTS}';
 import '${VIRTUAL_THEME_VARS}';
 
 setConfigLoader(__cmsConfig);
 setSiteStyleLoader(__cmsStyles);
 setAssetResolver(__cmsAssets);
+setSiteComponents(__cmsSiteComponents);
 
 ${themeRegistrations}
 ${extRegistrations}
@@ -564,6 +571,17 @@ import { createSiteStyleLoader } from '@koehler8/cms/utils/siteStyles';
 const styleModules = import.meta.glob('@cms-site/style.css');
 const loader = createSiteStyleLoader(styleModules);
 export const ensureSiteStylesLoaded = loader.ensureSiteStylesLoaded;
+`;
+      }
+
+      if (virtualId === VIRTUAL_SITE_COMPONENTS) {
+        // Eager glob — Vite resolves each match at build time and inlines
+        // the imported components. The result is a bare object literal of
+        // the form { './path/to/Foo.vue': ModuleLike } that componentRegistry
+        // re-keys by basename.
+        return `
+const modules = import.meta.glob('@cms-site/components/**/*.vue', { eager: true });
+export default modules;
 `;
       }
 

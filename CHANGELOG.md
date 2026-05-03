@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0-beta.10
+
+### First-class site-local components
+
+Sites can now drop Vue files into `site/components/**/*.vue` and reference them from `pages/{pageId}.json` `components[]` by basename — no extension wrapper, no `package.json`, no `vite.config.js` change. The framework auto-globs them at build time via a new `virtual:cms-site-components` virtual module that the generated entry hands to `setSiteComponents()`.
+
+- **Resolution priority**: site → extension → bundled. Most-specific wins.
+- **Source-qualified `site:Name`** always resolves to a site-local component, mirroring the existing `slug:Name` extension qualifier. Use it to disambiguate when a site component intentionally shadows a bundled or extension one.
+- **Override warnings**: when a site component shadows a bundled CMS component, a one-line dev-time console warning fires at startup naming the shadow. Duplicate basenames across subdirectories also warn (first registration wins).
+- **Component contract**: site components follow the same conventions as bundled CMS components — read content via `inject('pageContent')`, use `<style scoped>`, consume theme tokens via `var(--brand-*)`. They receive no props from the resolver (extensions still receive `content` and `configKey`, since they have a manifest-declared `configKey`).
+
+This is the recommended home for any one-off custom UI that doesn't need to be shared across sites. Reach for an extension only when components are actually destined for a published `@koehler8/cms-ext-*` package.
+
 ## 1.0.0-beta.9
 
 ### `Home.vue`: suppress the loading placeholder during initial hydration
