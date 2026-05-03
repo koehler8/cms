@@ -100,6 +100,31 @@ The CI uses `npm install --ignore-scripts` (skips the lru-cache patch since it's
 | Build scripts / CLI | `scripts/`, `bin/` |
 | Add or modify tests | `tests/`, `vitest.config.js` |
 
+## Lockfile and npm version (this is the #1 source of consumer-site deploy failures)
+
+The framework targets **Node 20.19 / npm 10.8** — pinned in [package.json](package.json) `engines` and [.nvmrc](.nvmrc). AWS Amplify (the typical deploy target for consumer sites) runs the same. **Local installs with a different npm version produce subtly different lockfiles** that look fine locally but break CI.
+
+Two failure modes we've seen on consumer sites:
+
+1. `Cannot find module '@rolldown/binding-linux-x64-gnu'` — npm 11 regen stripped optional-dep entries Amplify needs.
+2. `npm ci ... Missing: @types/react@..., @noble/hashes@... from lock file` — npm 11 omitted entries npm 10 expects.
+
+### Rules for maintainers
+
+- **Always `nvm use` before any `npm install` or test run.** The `.nvmrc` here pins 20.19.0; your shell's npm should report `10.8.x`.
+- **Don't bump dep versions in this repo without `nvm use` first.** A regen on the wrong npm propagates the bad lockfile to every consumer site that picks it up.
+- **CI uses `npm install --ignore-scripts`** for publish (skips the lru-cache patch since publishing doesn't need it). The build workflow runs on `actions/setup-node` with the version from `.nvmrc`.
+
+### Rules to surface to consumer sites
+
+Each consuming site repo (e.g. `site-coastalcollective`, `site-bang`) should:
+
+- Carry a top-level `.nvmrc` with the same Node version, plus a CLAUDE.md note telling future sessions to `nvm use` before installing.
+- Default to `npm install --prefer-offline --no-audit --no-fund` in their `amplify.yml` (NOT `npm ci`) until lockfile discipline is well-established. `npm ci` is faster but fails hard on any drift; `npm install` updates the lockfile in place during the build, so it's resilient.
+- Prefer **targeted bumps** (`npm install <pkg>@<version>`) over full regen (`rm package-lock.json && npm install`). Targeted bumps preserve the rest of the lockfile; full regen on the wrong npm version strips entries Amplify needs.
+
+The `site-coastalcollective` CLAUDE.md has a full "Lockfile and npm version" section future Claude sessions can copy into other consumer sites.
+
 ## Gotchas
 
 - **lru-cache TLA patch**: `scripts/patch-lru-cache-tla.js` runs on postinstall to strip top-level await from lru-cache for Node 20 compatibility. Don't remove it until upstream fixes.
