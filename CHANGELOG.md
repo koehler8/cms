@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.0-beta.13
+
+### `Header` slots + content-driven logo / nav
+
+The bundled `Header` component now exposes three named slots and three optional content keys, so sites can customise it without forking the component or carrying CSS hacks.
+
+**Slots** (for sites that wrap `Header` in a parent component):
+
+- `<template #logo>` — completely overrides the logo `<a>` contents. Receives `{ src, text, siteName }` as scoped slot props.
+- `<template #nav>` — overrides the nav `<ul>` rendering. Receives `{ items }` as a scoped slot prop.
+- `<template #actions>` — extra content rendered inside the actions cluster, before the locale dropdown.
+
+**Content keys** (for sites that use the bundled `Header` via JSON `components: ["Header"]`):
+
+- `content.header.logoText` — text shown in place of the site title in the logo position.
+- `content.header.logoSrc` — full URL to use as the logo image (overrides the `site/assets/img/logo.png` asset resolution).
+- `content.header.navItems[]` — array of `{ text, href, target? }` rendered as a top-level nav menu (responsive: hidden < 720px).
+
+**Behaviour change**: when neither `logoSrc` nor a `site/assets/img/logo.png` resolves, the Header now renders a text fallback (`logoText` or `siteName`) instead of an empty `<img src="">`. Sites that were carrying a critical-CSS workaround to hide the empty `<img>` (e.g. `.site-header__logo img { display: none } / ::after { content: '...' }`) can drop it.
+
 ## 1.0.0-beta.12
 
 ### Drop the implicit `base` theme auto-apply (BREAKING for sites that relied on it)

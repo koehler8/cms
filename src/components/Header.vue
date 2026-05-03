@@ -12,9 +12,42 @@
         <div class="container">
           <div class="site-header__inner">
             <a href="/" ref="logoLinkRef" class="site-header__logo logo-flash-trigger">
-            <img :src="logoSrc" :alt="siteName" class="logo-flash-image" />
+              <!--
+                Logo slot. Default rendering: <img> if site/assets/img/logo.png
+                exists or `content.header.logoSrc` is set, otherwise text from
+                `content.header.logoText` or the site title. Sites that wrap
+                Header in a parent component can override entirely via
+                <template #logo>.
+              -->
+              <slot name="logo" :src="logoSrc" :text="logoText" :site-name="siteName">
+                <img
+                  v-if="logoSrc"
+                  :src="logoSrc"
+                  :alt="siteName"
+                  class="logo-flash-image"
+                />
+                <span v-else class="site-header__logo-text">{{ logoText || siteName }}</span>
+              </slot>
           </a>
-          <div v-if="hasHeaderActions || showLocaleLinks" class="site-header__actions">
+          <!--
+            Nav slot. Defaults to a horizontal <ul> of links built from
+            `content.header.navItems[]` (each entry: { text, href, target? }).
+            No items, no nav.
+          -->
+          <slot name="nav" :items="navItems">
+            <ul v-if="navItems.length" class="site-header__nav-list">
+              <li v-for="(item, idx) in navItems" :key="`${item.href || item.text}-${idx}`">
+                <a
+                  :href="item.href"
+                  :target="item.target || null"
+                  :rel="item.target === '_blank' ? 'noopener noreferrer' : null"
+                >{{ item.text }}</a>
+              </li>
+            </ul>
+          </slot>
+          <div v-if="hasHeaderActions || showLocaleLinks || hasActionsSlot" class="site-header__actions">
+            <!-- Site-provided extra actions, rendered before the locale dropdown. -->
+            <slot name="actions" />
             <component
               v-if="headerActionsComponent"
               :is="headerActionsComponent"
@@ -80,14 +113,15 @@
 </template>
 
 <script setup>
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, useSlots, watch } from 'vue';
   import { useRoute } from 'vue-router';
   import { resolveAsset } from '../utils/assetResolver.js';
 import { trackEvent } from '../utils/analytics.js';
 import { getExtensionComponent } from '../extensions/extensionLoader.js';
 import { availableLocales as siteLocales } from '../utils/loadConfig.js';
 
-  const logoSrc = computed(() => resolveAsset('img/logo.png'));
+  const slots = useSlots();
+  const hasActionsSlot = computed(() => Boolean(slots.actions));
 
 const isLangOpen = ref(false);
 const isHeaderCompact = ref(false);
@@ -230,6 +264,40 @@ const updateLocaleMenuPosition = () => {
   const pageContent = inject('pageContent', ref({}));
 
   const siteName = computed(() => injectedSiteData.value?.site?.title || '');
+
+  // Header content (merged from shared.json + per-page overrides). Three
+  // optional knobs sites can use to customise the bundled Header without
+  // wrapping it in a parent component:
+  //   - content.header.logoText  → text shown in place of the site title
+  //   - content.header.logoSrc   → full URL to use as the logo image
+  //                                 (overrides the site/assets/img/logo.png
+  //                                 asset resolution)
+  //   - content.header.navItems  → array of { text, href, target? } to
+  //                                 render as a top-level nav menu
+  const headerContent = computed(() => {
+    const fromPage = pageContent.value?.header;
+    if (fromPage && typeof fromPage === 'object') return fromPage;
+    const fromSite = injectedSiteData.value?.header;
+    return (fromSite && typeof fromSite === 'object') ? fromSite : {};
+  });
+  const logoText = computed(() => {
+    const t = headerContent.value?.logoText;
+    return typeof t === 'string' && t.trim() ? t.trim() : '';
+  });
+  const logoSrc = computed(() => {
+    const customSrc = headerContent.value?.logoSrc;
+    if (typeof customSrc === 'string' && customSrc.trim()) {
+      return customSrc.trim();
+    }
+    // Fall back to the conventional site/assets/img/logo.png. resolveAsset
+    // returns '' when the asset doesn't exist; we treat that as "no image"
+    // and the template renders the text fallback instead of a broken <img>.
+    return resolveAsset('img/logo.png') || '';
+  });
+  const navItems = computed(() => {
+    const items = headerContent.value?.navItems;
+    return Array.isArray(items) ? items.filter((it) => it && typeof it === 'object') : [];
+  });
 
   const resolveHeaderSettings = () => {
     const pageHeader = pageContent.value?.header;
@@ -394,6 +462,47 @@ const updateLocaleMenuPosition = () => {
 .site-header__logo img {
   max-height: 44px;
   width: auto;
+}
+
+/* Text fallback when no logo asset / logoSrc is provided. Uses theme tokens
+   so the active theme drives appearance; consumers can override via scoped
+   CSS in a wrapping component or a brand-var override. */
+.site-header__logo-text {
+  font-family: var(--ui-font-display, var(--ui-font-body, inherit));
+  font-weight: 600;
+  font-size: clamp(1rem, 2.5vw, 1.25rem);
+  letter-spacing: 0.02em;
+  color: var(--brand-header-text, var(--brand-fg-100, inherit));
+  white-space: nowrap;
+}
+
+/* Nav menu rendered from content.header.navItems[]. Sits between the logo
+   and the actions cluster. Hidden on narrow viewports — sites that need
+   responsive nav should override the slot. */
+.site-header__nav-list {
+  display: none;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  gap: clamp(0.75rem, 2vw, 1.75rem);
+  align-items: center;
+}
+@media (min-width: 720px) {
+  .site-header__nav-list {
+    display: flex;
+  }
+}
+.site-header__nav-list a {
+  color: var(--brand-header-text, var(--brand-fg-100, inherit));
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.95rem;
+  transition: opacity 0.15s ease;
+}
+.site-header__nav-list a:hover,
+.site-header__nav-list a:focus-visible {
+  opacity: 0.7;
+  text-decoration: underline;
 }
 
 .site-header__actions {
