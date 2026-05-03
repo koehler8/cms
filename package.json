@@ -1,6 +1,6 @@
 {
   "name": "@koehler8/cms",
-  "version": "1.0.0-beta.13",
+  "version": "1.0.0-beta.14",
   "description": "Vertex CMS — lightweight, config-driven Vue 3 framework with theming, extensions, and SSG support",
   "license": "MIT",
   "type": "module",
@@ -47,7 +47,9 @@
   "bin": {
     "cms-generate-public-assets": "./bin/cms-generate-public-assets.js",
     "cms-validate-themes": "./bin/cms-validate-themes.js",
-    "cms-validate-extensions": "./bin/cms-validate-extensions.js"
+    "cms-validate-extensions": "./bin/cms-validate-extensions.js",
+    "cms-create-theme": "./bin/cms-create-theme.js",
+    "cms-create-extension": "./bin/cms-create-extension.js"
   },
   "files": [
     "src",

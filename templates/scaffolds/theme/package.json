@@ -1,0 +1,21 @@
+{
+  "name": "cms-theme-__SLUG__",
+  "version": "0.1.0",
+  "description": "__DISPLAY_NAME__ theme for @koehler8/cms.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./config": "./theme.config.js"
+  },
+  "files": [
+    "index.js",
+    "theme.config.js",
+    "theme.css",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@koehler8/cms": "^1.0.0-beta.1"
+  }
+}

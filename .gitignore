@@ -8,3 +8,4 @@ dist/
 .idea/
 coverage/
 .cms-entry.js
+tests/_tmp/

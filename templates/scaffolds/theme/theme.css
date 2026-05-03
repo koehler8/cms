@@ -1,0 +1,14 @@
+/* __DISPLAY_NAME__ theme — supplemental rules and brand-specific aliases.
+ *
+ * Most theming happens via the tokens object in theme.config.js — the CMS
+ * derives `:root[data-site-theme="__SLUG__"] { --brand-*, --theme-* }` from
+ * the manifest and bundles it into `virtual:cms-theme-vars.css` (loaded as
+ * a sync <link rel="stylesheet">). This file is for things the manifest
+ * doesn't cover: font @imports, brand-color aliases, transitions, etc.
+ */
+
+:root[data-site-theme="__SLUG__"] {
+  /* Brand color aliases (also exposed by the manifest, mirrored here for
+     parity with the existing @koehler8/cms-theme-* packages). */
+  /* --brand-foo: #XXXXXX; */
+}

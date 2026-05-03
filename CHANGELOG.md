@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.0.0-beta.14
+
+### Scaffolding CLIs: `cms-create-theme` and `cms-create-extension`
+
+Two new bin scripts that scaffold a starter theme or extension into the current site, replacing the multi-file copy/paste dance with a single command.
+
+```bash
+npx cms-create-theme coastal
+# → themes/coastal/{package.json, index.js, theme.config.js, theme.css, README.md}
+# → prints next-step instructions for wiring into package.json + vite.config.js
+
+npx cms-create-extension realestate
+# → extensions/realestate/{package.json, extension.config.json, index.js, README.md}
+# → ships with components: [] (no stub needed, since 1.0.0-beta.11)
+```
+
+Flags:
+- `--out <dir>` — override the default target (`themes/<slug>/` or `extensions/<slug>/`).
+- `--force` — overwrite an existing target directory.
+- `--help` / `-h` — show usage.
+
+The generated theme manifest validates against `themeValidator` immediately (a slate-and-sand placeholder palette — meant to be replaced). The generated extension manifest declares `components: []` and the README explains how to add components plus when to prefer `site/components/` instead.
+
+The CLI **does not** modify your site's `package.json` or `vite.config.js` — wiring is left to a copy/paste from the printed next-steps message, since automatic edits risk corrupting custom formatting and are harder to reverse than three lines of JSON.
+
 ## 1.0.0-beta.13
 
 ### `Header` slots + content-driven logo / nav

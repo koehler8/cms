@@ -1,0 +1,22 @@
+{
+  "name": "cms-ext-__SLUG__",
+  "version": "0.1.0",
+  "description": "__DISPLAY_NAME__ extension for @koehler8/cms.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./config": "./extension.config.json"
+  },
+  "files": [
+    "index.js",
+    "extension.config.json",
+    "components",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@koehler8/cms": "^1.0.0-beta.1"
+  }
+}

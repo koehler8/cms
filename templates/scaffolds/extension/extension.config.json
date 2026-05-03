@@ -1,0 +1,10 @@
+{
+  "$schema": "../../node_modules/@koehler8/cms/extensions/manifest.schema.json",
+  "slug": "__SLUG__",
+  "version": "0.1.0",
+  "license": "MIT",
+  "provider": {
+    "name": "__DISPLAY_NAME__ extension"
+  },
+  "components": []
+}
