@@ -8,7 +8,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import vue from '@vitejs/plugin-vue';
 
 import { SUPPORTED_LOCALES } from './src/constants/locales.js';
@@ -99,8 +100,13 @@ const __dirname = path.dirname(__filename);
 const VIRTUAL_CONFIG = 'virtual:cms-config-loader';
 const VIRTUAL_STYLES = 'virtual:cms-site-styles';
 const VIRTUAL_ASSETS = 'virtual:cms-asset-resolver';
+// Synthetic stylesheet built from each registered theme's manifest at build
+// time. Importing this from the generated entry causes Vite to emit a real
+// <link rel="stylesheet"> in <head>, so theme CSS variables apply during the
+// initial paint instead of after Vue hydrates.
+const VIRTUAL_THEME_VARS = 'virtual:cms-theme-vars.css';
 
-const VIRTUAL_IDS = new Set([VIRTUAL_CONFIG, VIRTUAL_STYLES, VIRTUAL_ASSETS]);
+const VIRTUAL_IDS = new Set([VIRTUAL_CONFIG, VIRTUAL_STYLES, VIRTUAL_ASSETS, VIRTUAL_THEME_VARS]);
 
 // Entry file name (written to site repo root, gitignored, cleaned up in buildEnd)
 const ENTRY_FILENAME = '.cms-entry.js';
@@ -148,6 +154,7 @@ ${extImports}
 import * as __cmsConfig from '${VIRTUAL_CONFIG}';
 import * as __cmsStyles from '${VIRTUAL_STYLES}';
 import * as __cmsAssets from '${VIRTUAL_ASSETS}';
+import '${VIRTUAL_THEME_VARS}';
 
 setConfigLoader(__cmsConfig);
 setSiteStyleLoader(__cmsStyles);
@@ -479,9 +486,65 @@ export default function cmsPlugin(options = {}) {
       return null;
     },
 
-    load(id) {
+    async load(id) {
       if (!isResolvedVirtual(id)) return null;
       const virtualId = id.slice(1); // strip leading \0
+
+      if (virtualId === VIRTUAL_THEME_VARS) {
+        // Build a stylesheet by deriving CSS variables from each registered
+        // theme's manifest at build time. We resolve the theme package via
+        // the site's node_modules (createRequire from siteRoot) and import
+        // its pure manifest through the package's `./config` exports field
+        // (which points at theme.config.js — sidestepping any Vite-only
+        // imports the theme's index.js may have, e.g. `?inline` CSS or a
+        // side-effect `import './theme.css'`). The bundled `base` theme is
+        // always included so sites without a `themes` option still get a
+        // sync theme.
+        const { buildCssVarMap, renderCssVarRule } = await import(
+          './src/themes/buildCssVarMap.js'
+        );
+        const baseManifestModule = await import('./themes/base/theme.config.js');
+        const baseManifest = baseManifestModule.default || baseManifestModule;
+
+        const requireFromSite = createRequire(path.join(siteRoot, 'package.json'));
+
+        const blocks = [];
+        const seen = new Set();
+
+        const addManifest = (manifest, sourceLabel) => {
+          if (!manifest || typeof manifest !== 'object') return;
+          const slug = typeof manifest.slug === 'string' ? manifest.slug.trim().toLowerCase() : '';
+          if (!slug || seen.has(slug)) return;
+          seen.add(slug);
+          const vars = buildCssVarMap(manifest);
+          if (Object.keys(vars).length === 0) return;
+          const selector = `:root[data-site-theme="${slug}"]`;
+          blocks.push(`/* ${sourceLabel} */\n${renderCssVarRule(selector, vars)}`);
+        };
+
+        addManifest(baseManifest, '@koehler8/cms (base)');
+
+        for (const pkg of themePackages) {
+          let manifestPath;
+          try {
+            manifestPath = requireFromSite.resolve(`${pkg}/config`);
+          } catch (err) {
+            this.warn(`[cms-vite-plugin] Theme "${pkg}" does not expose a "./config" export pointing at theme.config.js; skipping. (${err.message})`);
+            continue;
+          }
+          let manifest;
+          try {
+            const mod = await import(pathToFileURL(manifestPath).href);
+            manifest = mod.default || mod.manifest || mod;
+          } catch (err) {
+            this.warn(`[cms-vite-plugin] Failed to load theme manifest from "${pkg}": ${err.message}`);
+            continue;
+          }
+          addManifest(manifest, pkg);
+        }
+
+        return blocks.join('\n\n') + '\n';
+      }
 
       if (virtualId === VIRTUAL_CONFIG) {
         return `

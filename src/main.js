@@ -39,12 +39,26 @@ const extractThemeKey = (siteData) => {
   return '';
 };
 
-const applySiteTheme = (themeKey) => {
-  if (typeof document === 'undefined') return;
+const applySiteTheme = (themeKey, head) => {
   const normalized = normalizeThemeKey(themeKey);
   const resolved = normalized || 'base';
-  document.documentElement.dataset.siteTheme = resolved;
-  applyThemeVariables(resolved);
+
+  // Push the html attribute via @unhead so `data-site-theme="X"` lands
+  // in the SSR-rendered HTML *before* Vue hydrates. Theme CSS selectors
+  // (`:root[data-site-theme="X"]`) then apply during the very first
+  // paint, eliminating the need for site-side critical-CSS overrides.
+  if (head && typeof head.push === 'function') {
+    head.push({ htmlAttrs: { 'data-site-theme': resolved } });
+  }
+
+  // Client only: also set the attribute imperatively (so runtime theme
+  // switching is reflected immediately) and inline the CSS variable map
+  // for themes that ship JS-only design tokens (e.g. the bundled `base`
+  // theme has no theme.css).
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.siteTheme = resolved;
+    applyThemeVariables(resolved);
+  }
 };
 
 export function createCmsApp() {
@@ -74,9 +88,7 @@ export function createCmsApp() {
 
       if (initialState.siteTheme) {
         setActiveThemeKey(initialState.siteTheme);
-        if (typeof document !== 'undefined') {
-          applySiteTheme(initialState.siteTheme);
-        }
+        applySiteTheme(initialState.siteTheme, ctx.head);
       }
 
       applyRouterGuards(router);
@@ -130,7 +142,7 @@ export function createCmsApp() {
             initialState.siteTheme ?? normalizeThemeKey(extractThemeKey(initialState.siteConfig));
           initialState.siteTheme = existingTheme;
           setActiveThemeKey(existingTheme);
-          applySiteTheme(existingTheme);
+          applySiteTheme(existingTheme, ctx.head);
           return initialState.siteConfig;
         }
 
@@ -140,7 +152,7 @@ export function createCmsApp() {
         initialState.siteConfigLocale = localeKey;
         initialState.siteTheme = themeKey;
         setActiveThemeKey(themeKey);
-        applySiteTheme(themeKey);
+        applySiteTheme(themeKey, ctx.head);
         return siteData;
       };
 

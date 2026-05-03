@@ -71,6 +71,36 @@ if (!catalog.base) {
  * Called by the Vite plugin for each theme passed via the `themes` option.
  * Must be called before the first render (during app initialisation).
  *
+ * Two patterns for shipping theme CSS:
+ *
+ *   1. **Side-effect import (preferred).** The theme's `index.js` imports
+ *      its `theme.css` for side effects:
+ *
+ *        import manifest from './theme.config.js';
+ *        import './theme.css';
+ *        export default { manifest };
+ *
+ *      Vite bundles `theme.css` into the main entry chunk and emits a
+ *      synchronous `<link rel="stylesheet">` in `<head>`, so theme rules
+ *      apply during the initial paint. Combined with the SSR-rendered
+ *      `data-site-theme` attribute (set in `applySiteTheme`), this
+ *      eliminates the FOUC that JS-injected theme CSS used to cause.
+ *
+ *   2. **Inline string (legacy).** The theme's `index.js` imports the CSS
+ *      with `?inline` and exports it as a `css` string:
+ *
+ *        import manifest from './theme.config.js';
+ *        import css from './theme.css?inline';
+ *        export default { manifest, css };
+ *
+ *      The CSS is injected via a runtime `<style>` tag (handled below).
+ *      This works but applies after Vue hydrates, so dark themes will
+ *      flash a light first paint unless the site provides critical CSS.
+ *
+ * Existing themes (cms-theme-neon, -frog, -aurora, -southpark, -swamp)
+ * still use pattern 2 and are supported indefinitely; new themes should
+ * prefer pattern 1.
+ *
  * @param {object} themeModule - Default export from a @koehler8/cms-theme-* package
  *   Expected shape: { manifest, css? } or just the manifest object directly.
  */
@@ -85,7 +115,9 @@ export function registerTheme(themeModule) {
 
   addToCatalog(manifest, sourceId, undefined);
 
-  // If the theme package shipped inline CSS, inject it into the document head.
+  // Legacy pattern 2: theme shipped inline CSS, inject it into the document head.
+  // For pattern 1 themes, `cssContent` is undefined and this block is skipped —
+  // the CSS is already loaded via Vite's bundling.
   if (cssContent && typeof cssContent === 'string' && typeof document !== 'undefined') {
     const slug = normalizeSlug(manifest.slug);
     const existingStyle = document.getElementById(`theme-css-${slug}`);
