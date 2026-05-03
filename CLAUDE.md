@@ -125,6 +125,48 @@ Each consuming site repo (e.g. `site-coastalcollective`, `site-bang`) should:
 
 The `site-coastalcollective` CLAUDE.md has a full "Lockfile and npm version" section future Claude sessions can copy into other consumer sites.
 
+## Accessibility (WCAG 2.2 Level AA — hard requirement)
+
+**Every consumer site that ships on this framework must meet WCAG 2.2 Level AA.** Real-estate, hospitality, retail, and similar public-accommodation sites are frequent ADA-lawsuit targets in the US, and AA is the de facto benchmark courts apply. The framework itself was audited and brought to AA in `1.0.0-beta.17` ([CHANGELOG](CHANGELOG.md#100-beta17)) — the bundled components, the `base` theme, and the page wrapper all conform out of the box. Don't regress that, and don't ship a feature that re-introduces a failure pattern.
+
+### What "AA-compliant" means in practice for this codebase
+
+The framework guarantees these for any consuming site that uses the bundled `Home.vue` wrapper, the bundled components, and the `base` theme:
+
+- **Skip link** to `<main id="main-content">` as the first focusable element on the page (WCAG 2.4.1 Bypass Blocks).
+- **Single `<main>` landmark** + `<header>`, `<nav aria-label="…">`, `<footer>` correctly placed (1.3.1 Info and Relationships).
+- **`html { scroll-padding-top: 88px }`** so anchor jumps and skip-link landings are not obscured by the sticky header (2.4.11 Focus Not Obscured).
+- **Real `<label>`s, `aria-required`, `autocomplete`, `aria-live` for errors** on `Contact.vue` (3.3.2 Labels, 4.1.2 Name/Role/Value).
+- **Visible `:focus-visible`** rings on every interactive element in bundled components (2.4.7 Focus Visible).
+- **`prefers-reduced-motion`** honored across all animated bundled components (2.3.3 Animation from Interactions).
+- **Modal focus trap + restore** in `IntroGate` and `ComingSoonModal` (2.4.3 Focus Order).
+- **`<noscript>` fallback** for scroll-reveal targets so SSG content is visible without JS (1.4.4 in spirit).
+- **`base` theme palette** verified: every text-on-bg pair the components render meets 4.5:1 (text) or 3:1 (large text and non-text UI). New top-level token blocks `tokens.hero` / `tokens.footer` / `tokens.plan` exist specifically to pair text with non-default backgrounds and prevent the "fallback chain reaches a token designed for a different surface" trap.
+
+### When you change something, check it
+
+When touching any of these, re-verify accessibility before merging:
+
+| Change | What to check |
+|---|---|
+| **Theme palette** (any `themes/*/theme.config.js`) | Compute contrast for every text/UI pair the components render. 4.5:1 for body text, 3:1 for large text (≥18pt or 14pt bold) and non-text UI. The audit script pattern is in [CHANGELOG.md `1.0.0-beta.17`](CHANGELOG.md#100-beta17). |
+| **A bundled component's markup** | Heading order (one `<h1>` per page, no skips), landmarks, focus management, target sizes (≥24×24 CSS px per 2.5.8). |
+| **A bundled component's CSS** | Don't add `outline: none` without a replacement. Don't drop the `:focus-visible` rule. Don't break `prefers-reduced-motion`. |
+| **`Home.vue` / `templates/index.html`** | Skip link must remain the first focusable element. `<main id="main-content" tabindex="-1">` must be the only `<main>`. `scroll-padding-top` must remain. |
+| **A new built-in component** | New components must ship with: semantic HTML, `:focus-visible` styles, `prefers-reduced-motion` block if animated, ARIA only where native semantics aren't enough, AA-compliant default colors via theme tokens. |
+
+### Token naming conventions for accessibility
+
+When adding new theme tokens that will be rendered as text, follow the existing pattern:
+
+- **Decorative palette colors** (used as fills, backgrounds, icons) can be brighter — name them `accent`, `accentDecorative`, `success`, `warning`, `critical`, etc.
+- **Text-safe variants** of those colors get a `Text` suffix — `successText`, `warningText`, `criticalText`. These must compute ≥4.5:1 against the surface they will appear on.
+- **Surface-pairing token blocks** (e.g. `tokens.hero`, `tokens.footer`, `tokens.plan`) exist for surfaces with non-default backgrounds. Components that render on those surfaces must read from the matching `--brand-{surface}-*` CSS variables, not fall through to `--ui-text-primary` (which assumes the default light body bg).
+
+### What to do if a fix is non-trivial
+
+If preserving AA conformance for a feature requires a structural change you're not sure about — **stop and ask before merging**. AA is a hard requirement for shipped sites; getting it wrong creates legal exposure for the site owner. A short conversation up-front beats a regression that ships and gets caught months later in an audit.
+
 ## Gotchas
 
 - **lru-cache TLA patch**: `scripts/patch-lru-cache-tla.js` runs on postinstall to strip top-level await from lru-cache for Node 20 compatibility. Don't remove it until upstream fixes.

@@ -5,6 +5,12 @@
 
 Vertex CMS is a lightweight, config-driven Vue 3 framework with theming, extensions, and SSG support.
 
+## Accessibility
+
+Vertex CMS targets **[WCAG 2.2 Level AA](https://www.w3.org/WAI/WCAG22/quickref/?currentsidebar=%23col_overview&versions=2.2&levels=aaa)** as a hard requirement for the bundled components, the `base` theme, and the page wrapper. Sites that ship on this framework with the bundled pieces inherit a skip link, single `<main>` landmark, real form labels with `aria-live` errors, visible focus rings, modal focus trap+restore, AA-verified palette contrast, and `prefers-reduced-motion` support out of the box.
+
+When extending or theming, **don't regress AA**. See the "Accessibility" section of [CLAUDE.md](CLAUDE.md#accessibility-wcag-22-level-aa--hard-requirement) for the requirements, the token naming conventions for safe colors, and the audit checklist to run when changing palette/markup/CSS.
+
 ## Quick Start
 
 ### 1. Create a site repo
