@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0-beta.11
+
+### Allow setup-only / styles-only extensions
+
+Extension manifests can now declare `components: []`. Previously the schema enforced `components.minItems: 1`, which forced extensions whose only contribution is a `setup()` function or a side-effect CSS import to ship a no-op stub Vue file just to satisfy the validator (e.g. the coastalcollective site's `ext-shell` and `cms-ext-realestate` both carried `Placeholder.vue` / `SiteShell.vue` for this reason).
+
+The runtime loader already iterated `manifest.components` with `.some()` and `for...of`, so empty arrays work without further code changes. `registerExtension` accepts `{ manifest: { components: [] } }` and skips component registration entirely; `setup()` and `contentDefaults` continue to work as before.
+
 ## 1.0.0-beta.10
 
 ### First-class site-local components
