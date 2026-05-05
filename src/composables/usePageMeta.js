@@ -3,7 +3,19 @@ import { useHead } from '@unhead/vue';
 import { isPathDraft } from '../utils/draftMode.js';
 import { buildCanonicalUrl } from '../utils/canonicalUrl.js';
 import { buildSocialMeta } from '../utils/socialMeta.js';
+import { buildJsonLdScripts } from '../utils/jsonLd.js';
 import { availableLocales as configAvailableLocales, baseLocale as configBaseLocale } from '../utils/loadConfig.js';
+
+// Site-verification meta-tag names per platform. Authors set
+// `site.siteVerification.<platform>` in site.json with the token issued by
+// the platform's webmaster console; we emit one <meta> per platform.
+const SITE_VERIFICATION_META = {
+  google: 'google-site-verification',
+  bing: 'msvalidate.01',
+  yandex: 'yandex-verification',
+  pinterest: 'p:domain_verify',
+  facebook: 'facebook-domain-verification',
+};
 
 const SPECIAL_PAGE_LABELS = {
   home: '',
@@ -162,6 +174,22 @@ export function usePageMeta({ siteData, currentPage, locale }) {
       isNotFound: isNotFound.value,
     });
     for (const entry of social) meta.push(entry);
+
+    // Site-verification meta tags. These are emitted on every page (not
+    // just home) — verification platforms typically only check homepage
+    // but emitting site-wide is harmless and matches what most CMSs do.
+    const verification = siteData.value?.site?.siteVerification;
+    if (verification && typeof verification === 'object') {
+      for (const [platform, token] of Object.entries(verification)) {
+        const metaName = SITE_VERIFICATION_META[platform];
+        if (!metaName) continue;
+        if (typeof token !== 'string') continue;
+        const trimmed = token.trim();
+        if (!trimmed) continue;
+        meta.push({ name: metaName, content: trimmed, key: `verify-${platform}` });
+      }
+    }
+
     const link = [];
     if (canonicalHref.value) {
       link.push({ rel: 'canonical', href: canonicalHref.value, key: 'canonical' });
@@ -169,10 +197,19 @@ export function usePageMeta({ siteData, currentPage, locale }) {
     for (const entry of hreflangLinks.value) {
       link.push(entry);
     }
+
+    const script = buildJsonLdScripts({
+      siteData: siteData.value,
+      currentPage: currentPage.value,
+      isDraft: isDraft.value,
+      isNotFound: isNotFound.value,
+    });
+
     return {
       title: pageMetaTitle.value,
       meta,
       link,
+      script,
     };
   });
 

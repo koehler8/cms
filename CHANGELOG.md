@@ -1,5 +1,109 @@
 # Changelog
 
+## 1.0.0-beta.21
+
+### Per-page JSON-LD, Web App Manifest, and Search Console verification hooks
+
+Three Tier-2 SEO/PWA additions, all opt-in and additive:
+
+**Per-page JSON-LD structured data**
+
+- New `src/utils/jsonLd.js` builds `<script type="application/ld+json">`
+  blocks from per-page and per-site `jsonld` keys.
+- Authors add either an object or an array of objects in `pages/{id}.json`:
+
+  ```json
+  "jsonld": {
+    "@type": "RealEstateAgent",
+    "name": "Jamie Austin",
+    "telephone": "+1-310-806-3199",
+    "image": "https://ocandme.com/img/jamie.jpg"
+  }
+  ```
+
+  or several:
+
+  ```json
+  "jsonld": [
+    { "@type": "Article", "headline": "..." },
+    { "@type": "BreadcrumbList", "itemListElement": [ ... ] }
+  ]
+  ```
+
+- Site-wide additions (e.g. a `WebSite` with sitelinks-search-box) live
+  under `site.jsonld` in `site.json`. Page blocks append after site blocks.
+- `@context` is auto-injected with `https://schema.org` if the author
+  omits it.
+- Drafts and 404 pages skip JSON-LD entirely (gated/missing content
+  shouldn't make schema.org claims).
+
+**Web App Manifest (`/manifest.json`)**
+
+- The plugin's `writeSeoFiles` now generates `siteRoot/public/manifest.json`
+  from `site.title`, `site.description`, and an optional `site.manifest`
+  block. Defaults work out of the box: `start_url=/`, `display=standalone`,
+  fallback theme/background `#ffffff`, icons referencing
+  `/favicon-256.png` and `/favicon.ico` (both written by
+  `cms-generate-public-assets`).
+- Per-site overrides via `site.manifest.{name, shortName, themeColor,
+  backgroundColor, startUrl, display, lang, description, icons[]}`.
+- `templates/index.html` now emits `<link rel="manifest"
+  href="/manifest.json">` and `<meta name="theme-color" content="...">` so
+  iOS/Android Add-to-Home-Screen works and the mobile chrome bar takes
+  the brand color.
+
+**Search Console / webmaster verification meta**
+
+- New `site.siteVerification` object in `site.json` keyed by platform:
+
+  ```json
+  "siteVerification.google": "abc123token",
+  "siteVerification.bing": "...",
+  "siteVerification.pinterest": "...",
+  "siteVerification.facebook": "...",
+  "siteVerification.yandex": "..."
+  ```
+
+- `usePageMeta` emits one `<meta name="...">` per token using the
+  platform's standard meta name (`google-site-verification`,
+  `msvalidate.01`, `p:domain_verify`, `facebook-domain-verification`,
+  `yandex-verification`).
+- Empty/whitespace tokens and unknown platforms are silently skipped.
+- Emitted on every page (verification platforms typically only check
+  homepage; emitting site-wide is harmless and matches industry default).
+
+**New files:**
+
+- `src/utils/jsonLd.js` — `buildJsonLdScripts(...)` (12 tests)
+- `src/utils/webAppManifest.js` — `buildWebAppManifest(...)` (15 tests)
+- `tests/utils/jsonLd.spec.js`, `tests/utils/webAppManifest.spec.js`
+
+**Edits:**
+
+- `src/composables/usePageMeta.js` — now also emits `script: [...]` for
+  JSON-LD and additional verification `<meta>` tags via `useHead`.
+- `vite-plugin.js` — `writeSeoFiles` writes `manifest.json` alongside
+  `robots.txt` and `sitemap.xml`. `extractSiteMetadata` exposes
+  `manifestThemeColor` for the template.
+- `templates/index.html` — adds `<link rel="manifest">` and
+  `<meta name="theme-color">`.
+
+**Caveats:**
+
+- **Theme color in `<meta name="theme-color">` is static per build** (read
+  from `site.manifest.themeColor`). It doesn't auto-derive from theme
+  tokens — sites should set it explicitly to match their brand.
+- **No JSON-LD validation.** Whatever the author writes is emitted as-is.
+  Use Google's Rich Results Test to validate before relying on rich
+  results.
+- **PWA-installable scope.** Just shipping `manifest.json` doesn't make
+  the site fully PWA-installable; that requires a service worker, which
+  is out of scope. The manifest covers what most marketing sites need
+  (Add to Home Screen, splash colors, app-like icon).
+
+Tests: 515 passing (12 new for `jsonLd`, 15 for `webAppManifest`, 9
+added to `usePageMeta` for JSON-LD + verification).
+
 ## 1.0.0-beta.20
 
 ### Per-page Open Graph + Twitter Card meta and a real 404 page

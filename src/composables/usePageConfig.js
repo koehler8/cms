@@ -50,6 +50,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
         content: data.content || {},
         meta: data.meta || {},
         draft: data.draft,
+        jsonld: data.jsonld,
       };
     };
 
@@ -72,6 +73,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
             content: data.content || {},
             meta: data.meta || {},
             draft: data.draft,
+            jsonld: data.jsonld,
           };
         }
       }
@@ -113,6 +115,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
         content: firstData.content || {},
         meta: firstData.meta || {},
         draft: firstData.draft,
+        jsonld: firstData.jsonld,
       };
     }
 

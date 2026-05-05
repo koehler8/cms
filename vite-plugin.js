@@ -15,6 +15,7 @@ import vue from '@vitejs/plugin-vue';
 import { inflateFlatConfig } from './src/utils/inflateFlatConfig.js';
 import { buildRobotsTxt } from './src/utils/robotsGenerator.js';
 import { buildSitemap, getSitemapUrl } from './src/utils/sitemapGenerator.js';
+import { buildWebAppManifest } from './src/utils/webAppManifest.js';
 import { sha256Hex } from './src/utils/sha256.js';
 
 // ---- Helpers ----
@@ -117,6 +118,7 @@ function extractSiteMetadata(siteConfig) {
     url: siteUrl = '',
     googleId: siteGoogleId = '',
     sameAs: siteSameAs = [],
+    manifest: siteManifest = {},
   } = siteConfig.site || {};
 
   const siteSameAsList = Array.isArray(siteSameAs)
@@ -124,7 +126,14 @@ function extractSiteMetadata(siteConfig) {
     : [];
   const siteSameAsJson = JSON.stringify(siteSameAsList);
 
-  return { siteTitle, siteDescription, siteUrl, siteGoogleId, siteSameAsJson };
+  // Mobile chrome bar / PWA splash color. Defaults match buildWebAppManifest's
+  // default so the rendered <meta name="theme-color"> matches whatever
+  // manifest.json advertises.
+  const manifestThemeColor = (typeof siteManifest.themeColor === 'string'
+    ? siteManifest.themeColor.trim()
+    : '') || '#ffffff';
+
+  return { siteTitle, siteDescription, siteUrl, siteGoogleId, siteSameAsJson, manifestThemeColor };
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -354,6 +363,7 @@ export default function cmsPlugin(options = {}) {
       siteUrl: metadata.siteUrl,
       siteGoogleId: metadata.siteGoogleId,
       siteSameAsJson: metadata.siteSameAsJson,
+      manifestThemeColor: metadata.manifestThemeColor,
     });
 
     const processed = html.replace(
@@ -418,6 +428,16 @@ export default function cmsPlugin(options = {}) {
     const sitemapUrl = sitemapXml ? getSitemapUrl(siteConfig) : '';
     const robotsBody = buildRobotsTxt(siteConfig, sitemapUrl);
     fs.writeFileSync(path.join(sitePublicDir, 'robots.txt'), robotsBody, 'utf-8');
+
+    // Web App Manifest. The template emits <link rel="manifest"> on every
+    // page; browsers use this to enable Add-to-Home-Screen + control
+    // splash colors when the site is launched from a homescreen icon.
+    const manifest = buildWebAppManifest(siteConfig);
+    fs.writeFileSync(
+      path.join(sitePublicDir, 'manifest.json'),
+      JSON.stringify(manifest, null, 2) + '\n',
+      'utf-8',
+    );
   };
 
   const cmsCore = {
@@ -832,6 +852,7 @@ export const assetUrlMap = resolver.assetUrlMap;
               siteUrl: metadata.siteUrl,
               siteGoogleId: metadata.siteGoogleId,
               siteSameAsJson: metadata.siteSameAsJson,
+              manifestThemeColor: metadata.manifestThemeColor,
             });
 
             html = html.replace(

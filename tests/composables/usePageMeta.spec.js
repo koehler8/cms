@@ -448,4 +448,108 @@ describe('usePageMeta', () => {
       expect(isNotFound.value).toBe(true);
     });
   });
+
+  describe('JSON-LD structured data', () => {
+    it('emits a <script> for a page-level jsonld block', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'about', path: '/about', jsonld: { '@type': 'AboutPage', name: 'About Us' } },
+      );
+      const head = readHead();
+      expect(head.script).toBeDefined();
+      expect(head.script).toHaveLength(1);
+      expect(head.script[0].type).toBe('application/ld+json');
+      const parsed = JSON.parse(head.script[0].innerHTML);
+      expect(parsed['@type']).toBe('AboutPage');
+      expect(parsed['@context']).toBe('https://schema.org');
+    });
+
+    it('emits site + page jsonld blocks (page after site)', () => {
+      setup(
+        { url: 'https://example.com', jsonld: { '@type': 'WebSite' } },
+        { id: 'about', path: '/about', jsonld: { '@type': 'AboutPage' } },
+      );
+      const head = readHead();
+      expect(head.script).toHaveLength(2);
+      expect(JSON.parse(head.script[0].innerHTML)['@type']).toBe('WebSite');
+      expect(JSON.parse(head.script[1].innerHTML)['@type']).toBe('AboutPage');
+    });
+
+    it('emits no JSON-LD on draft pages', () => {
+      setup(
+        { url: 'https://example.com', jsonld: { '@type': 'WebSite' } },
+        { id: 'wip', path: '/wip', draft: true, jsonld: { '@type': 'Article' } },
+      );
+      const head = readHead();
+      expect(head.script).toEqual([]);
+    });
+
+    it('emits no JSON-LD on 404 pages', () => {
+      setup(
+        { url: 'https://example.com', jsonld: { '@type': 'WebSite' } },
+        { id: '__not_found__', path: '/missing', isNotFound: true },
+      );
+      const head = readHead();
+      expect(head.script).toEqual([]);
+    });
+  });
+
+  describe('site-verification meta tags', () => {
+    it('emits google-site-verification when set', () => {
+      setup(
+        { siteVerification: { google: 'abc123token' } },
+        { id: 'home', path: '/' },
+      );
+      const head = readHead();
+      const tag = head.meta.find((m) => m.name === 'google-site-verification');
+      expect(tag).toBeDefined();
+      expect(tag.content).toBe('abc123token');
+    });
+
+    it('emits multiple platform tags simultaneously', () => {
+      setup(
+        {
+          siteVerification: {
+            google: 'g-token',
+            bing: 'b-token',
+            pinterest: 'p-token',
+          },
+        },
+        { id: 'home', path: '/' },
+      );
+      const head = readHead();
+      expect(head.meta.find((m) => m.name === 'google-site-verification').content).toBe('g-token');
+      expect(head.meta.find((m) => m.name === 'msvalidate.01').content).toBe('b-token');
+      expect(head.meta.find((m) => m.name === 'p:domain_verify').content).toBe('p-token');
+    });
+
+    it('ignores unknown platforms', () => {
+      setup(
+        { siteVerification: { madeUpService: 'token' } },
+        { id: 'home', path: '/' },
+      );
+      const head = readHead();
+      expect(head.meta.find((m) => m.name === 'madeUpService')).toBeUndefined();
+    });
+
+    it('skips empty / whitespace-only tokens', () => {
+      setup(
+        { siteVerification: { google: '   ', bing: '' } },
+        { id: 'home', path: '/' },
+      );
+      const head = readHead();
+      expect(head.meta.find((m) => m.name === 'google-site-verification')).toBeUndefined();
+      expect(head.meta.find((m) => m.name === 'msvalidate.01')).toBeUndefined();
+    });
+
+    it('ignores non-string token values', () => {
+      setup(
+        { siteVerification: { google: 42, bing: null } },
+        { id: 'home', path: '/' },
+      );
+      const head = readHead();
+      expect(head.meta.find((m) => m.name === 'google-site-verification')).toBeUndefined();
+      expect(head.meta.find((m) => m.name === 'msvalidate.01')).toBeUndefined();
+    });
+  });
 });

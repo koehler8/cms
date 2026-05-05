@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!--
       Per-page <title>, <meta name="description">, og:*, twitter:*, canonical,
-      and hreflang are emitted by usePageMeta at SSG render time. Site-wide
-      structured-data (the JSON-LD Organization snippet below) and the
-      static <link rel="icon"> remain in this template since they don't
-      vary per page.
+      hreflang, and JSON-LD blocks are emitted by usePageMeta at SSG render
+      time. Site-wide invariants (favicon, web-app manifest, the JSON-LD
+      Organization snippet, mobile-chrome theme color) live here.
     -->
     <link rel="icon" href="/favicon.ico">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="<%= manifestThemeColor %>">
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
