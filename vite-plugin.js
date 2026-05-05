@@ -14,6 +14,9 @@ import vue from '@vitejs/plugin-vue';
 
 import { SUPPORTED_LOCALES } from './src/constants/locales.js';
 import { inflateFlatConfig } from './src/utils/inflateFlatConfig.js';
+import { buildRobotsTxt } from './src/utils/robotsGenerator.js';
+import { buildSitemap, getSitemapUrl } from './src/utils/sitemapGenerator.js';
+import { sha256Hex } from './src/utils/sha256.js';
 
 // ---- Helpers ----
 
@@ -22,6 +25,15 @@ function loadSplitConfig(contentLocaleDir) {
   if (!fs.existsSync(sitePath)) return null;
 
   const site = inflateFlatConfig(JSON.parse(fs.readFileSync(sitePath, 'utf-8')));
+  // The plaintext password is read at build time so the plugin can produce
+  // robots.txt / sitemap.xml without surfacing it; strip it out of the
+  // in-memory siteConfig so accidental future code paths can't pass it
+  // through to the bundle. The `transform` hook below replaces the
+  // plaintext with a SHA-256 hash before any JSON file is imported by the
+  // runtime.
+  if (site && typeof site === 'object') {
+    delete site.draftPassword;
+  }
   const sharedPath = path.join(contentLocaleDir, 'shared.json');
   const shared = fs.existsSync(sharedPath) ? inflateFlatConfig(JSON.parse(fs.readFileSync(sharedPath, 'utf-8'))) : {};
 
@@ -36,6 +48,29 @@ function loadSplitConfig(contentLocaleDir) {
   }
 
   return { site, shared, pages };
+}
+
+// Replace site.json's plaintext draftPassword with a SHA-256 hash before
+// the JSON ever enters the bundle. Returns the original code untouched
+// when the file doesn't carry a password (or doesn't parse as JSON), so
+// non-CMS site.json files anywhere else in the project are unaffected.
+async function transformSiteJson(code) {
+  let parsed;
+  try {
+    parsed = JSON.parse(code);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+  const password = typeof parsed.draftPassword === 'string' ? parsed.draftPassword.trim() : '';
+  if (!('draftPassword' in parsed) && !password) return null;
+
+  delete parsed.draftPassword;
+  if (password) {
+    parsed.draftPasswordHash = await sha256Hex(password);
+  }
+  return JSON.stringify(parsed);
 }
 
 function normalizeRoutePath(value = '/') {
@@ -356,6 +391,30 @@ export default function cmsPlugin(options = {}) {
     mirrorDir(frameworkPublicDir, sitePublicDir);
   };
 
+  // Generate robots.txt and sitemap.xml from the inflated site config and
+  // write them to siteRoot/public/. Runs after syncPublicDir so dynamic
+  // output overwrites any framework or stale static copy. Sites pick up
+  // changes by rebuilding (the existing edit-JSON-rebuild-deploy flow).
+  const writeSeoFiles = () => {
+    const sitePublicDir = path.join(siteRoot, 'public');
+    fs.mkdirSync(sitePublicDir, { recursive: true });
+
+    const sitemapXml = buildSitemap(siteConfig);
+    const sitemapPath = path.join(sitePublicDir, 'sitemap.xml');
+    if (sitemapXml) {
+      fs.writeFileSync(sitemapPath, sitemapXml, 'utf-8');
+    } else if (fs.existsSync(sitemapPath)) {
+      // Stale sitemap from a previous build (e.g. site.url was removed, or
+      // every page is now draft). Drop it so crawlers don't get a list of
+      // URLs that no longer apply.
+      try { fs.unlinkSync(sitemapPath); } catch { /* noop */ }
+    }
+
+    const sitemapUrl = sitemapXml ? getSitemapUrl(siteConfig) : '';
+    const robotsBody = buildRobotsTxt(siteConfig, sitemapUrl);
+    fs.writeFileSync(path.join(sitePublicDir, 'robots.txt'), robotsBody, 'utf-8');
+  };
+
   const cmsCore = {
     name: '@koehler8/cms',
     enforce: 'pre',
@@ -612,16 +671,37 @@ export const assetUrlMap = resolver.assetUrlMap;
       return null;
     },
 
+    async transform(code, id) {
+      // Strip plaintext draftPassword from any site.json under content/
+      // before it lands in the bundle. The runtime reads the resulting
+      // draftPasswordHash via siteData and verifies user input against
+      // the hash. enforce: 'pre' on this plugin runs the transform before
+      // Vite's built-in JSON plugin converts the file to a JS module.
+      if (!id) return null;
+      const idPath = id.split('?')[0];
+      if (!idPath.endsWith('/site.json')) return null;
+      if (!idPath.includes(`${path.sep}content${path.sep}`) && !idPath.includes('/content/')) {
+        return null;
+      }
+      const transformed = await transformSiteJson(code);
+      if (transformed == null) return null;
+      return { code: transformed, map: null };
+    },
+
     configResolved(resolvedConfig) {
       // Write temp files as soon as config is resolved so vite-ssg's
       // detectEntry (which runs before Vite's build lifecycle) finds them.
       writeTempFiles();
 
       // Mirror framework's public/ into the site's public/ so fonts, maps,
-      // robots.txt, etc. end up in dist. Site-specific files (favicon.ico,
-      // logo.png, og-image.jpg written by generate-public-assets) win over
-      // any accidental collisions because we skip files that already exist.
+      // etc. end up in dist. Site-specific files (favicon.ico, logo.png,
+      // og-image.jpg written by generate-public-assets) win over any
+      // accidental collisions because we skip files that already exist.
       syncPublicDir();
+
+      // robots.txt and sitemap.xml are generated from the inflated site
+      // config (so per-site draft state regenerates on every build).
+      writeSeoFiles();
     },
 
     buildEnd() {

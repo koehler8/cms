@@ -1,15 +1,25 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ref } from 'vue';
 
-// Mock @unhead/vue since it requires SSR context
+// Mock @unhead/vue. We capture the head factory so tests can read what it
+// would emit (title + meta array) without an active unhead context.
+let lastHeadFactory = null;
 vi.mock('@unhead/vue', () => ({
-  useHead: vi.fn(),
+  useHead: vi.fn((arg) => {
+    lastHeadFactory = typeof arg === 'function' ? arg : () => arg;
+  }),
 }));
 
 import { usePageMeta } from '../../src/composables/usePageMeta.js';
 
+function readHead() {
+  if (!lastHeadFactory) return { title: '', meta: [] };
+  return lastHeadFactory();
+}
+
 describe('usePageMeta', () => {
   function setup(siteOverrides = {}, pageOverrides = {}) {
+    lastHeadFactory = null;
     const siteData = ref({
       site: { title: 'My Site', description: 'Site description', ...siteOverrides },
     });
@@ -73,6 +83,76 @@ describe('usePageMeta', () => {
     it('ignores whitespace-only descriptions', () => {
       const { pageMetaDescription } = setup({}, { meta: { description: '   ' } });
       expect(pageMetaDescription.value).toBe('Site description');
+    });
+  });
+
+  describe('draft / noindex meta', () => {
+    it('does not emit robots meta for non-draft pages', () => {
+      setup({}, { id: 'home', path: '/' });
+      const head = readHead();
+      const robots = head.meta.find((m) => m.name === 'robots');
+      expect(robots).toBeUndefined();
+    });
+
+    it('emits noindex,nofollow for site-wide draft', () => {
+      setup({ draft: true }, { id: 'home', path: '/' });
+      const head = readHead();
+      const robots = head.meta.find((m) => m.name === 'robots');
+      expect(robots).toBeDefined();
+      expect(robots.content).toBe('noindex, nofollow');
+    });
+
+    it('emits noindex for page with draft:true', () => {
+      setup({}, { id: 'wip', path: '/wip', draft: true });
+      const head = readHead();
+      const robots = head.meta.find((m) => m.name === 'robots');
+      expect(robots).toBeDefined();
+    });
+
+    it('emits noindex for page under a draftPaths prefix', () => {
+      setup({ draftPaths: ['/blog/2026'] }, { id: 'post', path: '/blog/2026/post-1' });
+      const head = readHead();
+      const robots = head.meta.find((m) => m.name === 'robots');
+      expect(robots).toBeDefined();
+    });
+
+    it('page-level draft:false override suppresses noindex', () => {
+      setup({ draft: true }, { id: 'public-page', path: '/public', draft: false });
+      const head = readHead();
+      const robots = head.meta.find((m) => m.name === 'robots');
+      expect(robots).toBeUndefined();
+    });
+
+    it('exposes isDraft computed', () => {
+      const { isDraft } = setup({ draft: true }, { id: 'home', path: '/' });
+      expect(isDraft.value).toBe(true);
+    });
+
+    it('emits generic title for draft pages so the slug does not leak', () => {
+      const { pageMetaTitle } = setup({}, { id: 'wip', path: '/wip', draft: true });
+      expect(pageMetaTitle.value).toBe('Draft — My Site');
+    });
+
+    it('generic title even when page has explicit meta.title', () => {
+      const { pageMetaTitle } = setup(
+        {},
+        { id: 'wip', path: '/wip', draft: true, meta: { title: 'Top Secret Plan' } },
+      );
+      expect(pageMetaTitle.value).toBe('Draft — My Site');
+      expect(pageMetaTitle.value).not.toContain('Top Secret');
+    });
+
+    it('falls back to "Draft" alone when site has no title', () => {
+      const { pageMetaTitle } = setup({ title: '' }, { id: 'wip', path: '/wip', draft: true });
+      expect(pageMetaTitle.value).toBe('Draft');
+    });
+
+    it('suppresses page description on draft pages', () => {
+      const { pageMetaDescription } = setup(
+        {},
+        { id: 'wip', path: '/wip', draft: true, meta: { description: 'Confidential.' } },
+      );
+      expect(pageMetaDescription.value).toBe('');
     });
   });
 });

@@ -26,6 +26,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
     components: [],
     content: {},
     meta: {},
+    draft: undefined,
   });
   const componentKeys = ref([]);
   const isLoading = ref(false);
@@ -48,6 +49,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
         components: Array.isArray(data.components) ? [...data.components] : [],
         content: data.content || {},
         meta: data.meta || {},
+        draft: data.draft,
       };
     };
 
@@ -69,6 +71,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
             components: Array.isArray(data.components) ? [...data.components] : [],
             content: data.content || {},
             meta: data.meta || {},
+            draft: data.draft,
           };
         }
       }
@@ -85,6 +88,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
         components: Array.isArray(firstData.components) ? [...firstData.components] : [],
         content: firstData.content || {},
         meta: firstData.meta || {},
+        draft: firstData.draft,
       };
     }
 
@@ -141,7 +145,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
       if (import.meta.env.DEV) {
         console.error('[PageRenderer] Failed to load page configuration', error);
       }
-      currentPage.value = { id: '', path: '/', components: [], content: {}, meta: {} };
+      currentPage.value = { id: '', path: '/', components: [], content: {}, meta: {}, draft: undefined };
       pageContent.value = {};
       if (typeof onPageLoaded === 'function') {
         onPageLoaded({ config: null, page: null, content: {} });

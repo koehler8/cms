@@ -30,6 +30,7 @@ templates/index.html    EJS-templated HTML shell
 - **Three-tier component resolution**: site-local (`site/components/`) → extension → bundled. Most-specific wins. Components are referenced by name; source-qualified syntax (`site:Name` or `slug:Name`) disambiguates.
 - **Content directory**: All translatable copy lives in `site/content/` with per-locale subdirectories (`en/`, `de/`, `ja/`, etc.) that mirror each other's structure. A `content.config.json` at the root specifies the base locale. All files use flat dot-notation keys sorted alphabetically. The base locale is loaded first; selected locale overrides only where keys are specified.
 - **Theme tokens -> CSS vars**: Theme manifests define design tokens; `themeManager.js` converts them to CSS custom properties on `document.documentElement`.
+- **Draft mode**: `site.draft`, `site.draftPaths[]`, page `draft` flags mark content as not-yet-public. Single source of truth is `src/utils/draftMode.js` (`isPathDraft`); used by `usePageMeta` (noindex meta), `useDraftGate` + `DraftGate.vue` (renders in place of `<main>` so SSG HTML on disk contains only the gate), and `vite-plugin.js` (generates `robots.txt` and `sitemap.xml` dynamically per build). `site.draftPassword` is one site-wide password persisted via `sessionStorage`. Empty password is a deliberate fail-safe state — gate still appears but accepts empty.
 
 ### Data Flow
 
@@ -99,6 +100,7 @@ The CI uses `npm install --ignore-scripts` (skips the lru-cache patch since it's
 | Analytics / consent | `src/utils/cookieConsent.js`, `src/utils/analytics.js` |
 | Build scripts / CLI | `scripts/`, `bin/` |
 | Add or modify tests | `tests/`, `vitest.config.js` |
+| Draft mode behavior | `src/utils/draftMode.js`, `src/composables/useDraftGate.js`, `src/components/DraftGate.vue`, `src/utils/sitemapGenerator.js`, `src/utils/robotsGenerator.js`, `vite-plugin.js` (writeSeoFiles) |
 
 ## Lockfile and npm version (this is the #1 source of consumer-site deploy failures)
 
@@ -154,6 +156,7 @@ When touching any of these, re-verify accessibility before merging:
 | **A bundled component's CSS** | Don't add `outline: none` without a replacement. Don't drop the `:focus-visible` rule. Don't break `prefers-reduced-motion`. |
 | **`Home.vue` / `templates/index.html`** | Skip link must remain the first focusable element. `<main id="main-content" tabindex="-1">` must be the only `<main>`. `scroll-padding-top` must remain. |
 | **A new built-in component** | New components must ship with: semantic HTML, `:focus-visible` styles, `prefers-reduced-motion` block if animated, ARIA only where native semantics aren't enough, AA-compliant default colors via theme tokens. |
+| **`DraftGate.vue` markup or styles** | Gate is `role="dialog"` `aria-modal="true"`, focus moves to the password input on mount, error region is `aria-live="polite"`. When making changes: keep the real `<label>` (no placeholder-as-label), keep `:focus-visible` rings on input + submit, keep the `prefers-reduced-motion` block. The gate must render inline (not teleported) so SSG HTML on disk contains only the gate when locked. |
 
 ### Token naming conventions for accessibility
 

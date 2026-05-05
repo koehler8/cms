@@ -1,29 +1,39 @@
 <template>
-  <a class="cms-skip-link" href="#main-content">Skip to main content</a>
-  <IntroGate
-    :enabled="introGateEnabled"
-    v-bind="introGateProps"
-  />
-  <main id="main-content" tabindex="-1">
-    <component
-      v-for="entry in loadedComponents"
-      :is="entry.component"
-      :key="entry.key"
-      v-bind="entry.props"
+  <template v-if="isDraft && !isUnlocked">
+    <DraftGate
+      :has-password="hasPassword"
+      :error-message="errorMessage"
+      @submit="attemptUnlock"
     />
-  </main>
-  <ComingSoonModal
-    :open="isComingSoonVisible"
-    :title="comingSoonTitle"
-    :message="comingSoonMessage"
-    @close="closeComingSoon"
-  />
+  </template>
+  <template v-else>
+    <a class="cms-skip-link" href="#main-content">Skip to main content</a>
+    <IntroGate
+      :enabled="introGateEnabled"
+      v-bind="introGateProps"
+    />
+    <main id="main-content" tabindex="-1">
+      <component
+        v-for="entry in loadedComponents"
+        :is="entry.component"
+        :key="entry.key"
+        v-bind="entry.props"
+      />
+    </main>
+    <ComingSoonModal
+      :open="isComingSoonVisible"
+      :title="comingSoonTitle"
+      :message="comingSoonMessage"
+      @close="closeComingSoon"
+    />
+  </template>
 </template>
 
 <script setup>
 import { computed, nextTick, provide, watch } from 'vue';
 
 import ComingSoonModal from '../components/ComingSoonModal.vue';
+import DraftGate from '../components/DraftGate.vue';
 import IntroGate from '../components/IntroGate.vue';
 
 import { registry } from '../utils/componentRegistry.js';
@@ -31,6 +41,7 @@ import { usePageConfig } from '../composables/usePageConfig.js';
 import { useComponentResolver } from '../composables/useComponentResolver.js';
 import { usePageMeta } from '../composables/usePageMeta.js';
 import { useIntroGate } from '../composables/useIntroGate.js';
+import { useDraftGate } from '../composables/useDraftGate.js';
 import { useEngagementTracking } from '../composables/useEngagementTracking.js';
 import { useComingSoonInterstitial } from '../composables/useComingSoonInterstitial.js';
 
@@ -70,6 +81,14 @@ const { loadedComponents } = useComponentResolver({
 });
 
 const { introGateEnabled, introGateProps } = useIntroGate({ siteData, pageContent });
+
+const {
+  isDraft,
+  isUnlocked,
+  hasPassword,
+  errorMessage,
+  attemptUnlock,
+} = useDraftGate({ siteData, currentPage });
 
 usePageMeta({ siteData, currentPage });
 

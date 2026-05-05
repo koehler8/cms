@@ -1,5 +1,136 @@
 # Changelog
 
+## 1.0.0-beta.18
+
+### Draft mode — `noindex` + password gate for in-progress content
+
+A site, a URL prefix, or an individual page can be marked as "draft" so
+search engines stay out and casual visitors hit a password gate instead of
+the page contents. Designed for the iteration window before a site or
+section goes public — not for protecting confidential data. **Static-host
+caveat**: the gate is client-side; image and asset URLs in `dist/` remain
+publicly fetchable regardless of whether the page that references them is
+gated. If you need real privacy for assets, host them elsewhere.
+
+**Schema additions** (all flat-key, optional, default off):
+
+- `site.json`
+  - `"draft": true` — marks the whole site as draft.
+  - `"draftPaths[0]": "/hidden/"` — URL prefixes (path-segment-aware: `/blog`
+    matches `/blog/2026/post` but not `/blog-archive`; case-sensitive).
+  - `"draftPassword": "..."` — one shared password for all drafts on the
+    site. The plugin replaces this field with a SHA-256 `draftPasswordHash`
+    at bundle time; the plaintext never reaches `dist/` or
+    `__INITIAL_STATE__`. Empty/missing is a deliberate fail-safe: the gate
+    still appears but accepts any input including empty.
+- `pages/{id}.json`
+  - `"draft": true` — marks a single page as draft.
+  - `"draft": false` — explicitly publishes a page even when the site or a
+    matching `draftPaths` prefix says draft (page-level wins both ways).
+
+**Behavior:**
+
+- **Robots & SEO**: every draft page emits `<meta name="robots"
+  content="noindex, nofollow">` and a generic `<title>Draft — {Site}</title>`
+  (the page's real title and description are suppressed for drafts so the
+  slug doesn't leak via `<title>` / `<meta description>`). The plugin
+  generates `robots.txt` and `sitemap.xml` dynamically from the inflated
+  config on every build — draft prefixes/pages get `Disallow:` lines and
+  are skipped from the sitemap entirely. (Replaces the previous static
+  `cms/public/robots.txt`.)
+- **Runtime gate**: when a draft page is rendered, `<DraftGate>` replaces
+  the page body (no Header, no Footer, no skip-link) so the SSG-rendered
+  HTML on disk contains only the gate, not the content. Unlock persists
+  in `sessionStorage` site-wide for the tab — closing the tab re-engages
+  the gate.
+- **Password is hashed at build time**: site.json's plaintext
+  `draftPassword` is replaced with `draftPasswordHash` (SHA-256 hex) by a
+  Vite `transform` hook before any JSON is imported. At runtime,
+  `useDraftGate.attemptUnlock(input)` SHA-256-hashes the input and
+  compares hashes. Plaintext password is in the source repo only — never
+  in `dist/` or `__INITIAL_STATE__`.
+- **SSR**: the SSR pre-render pass keeps `isUnlocked: false`, so
+  `dist/<path>/index.html` is the gate HTML even after build. This is
+  what crawlers and `curl` see.
+
+**New files:**
+
+- `src/utils/draftMode.js` — `isPathDraft`, `pathMatchesPrefix`,
+  `normalizeDraftPath`, `getDraftPasswordHash`. The predicate is shared
+  between the runtime gate, the meta-tag injection, and the plugin's
+  robots.txt/sitemap.xml emitters.
+- `src/utils/sha256.js` — `sha256Hex(input)` over Web Crypto. Used by both
+  the build-time transform (Node 20.19's globalThis.crypto.subtle) and
+  the runtime gate (browser SubtleCrypto).
+- `src/utils/sitemapGenerator.js` — `buildSitemap(siteConfig)` returns the
+  XML or '' when `site.url` is missing.
+- `src/utils/robotsGenerator.js` — `buildRobotsTxt(siteConfig, sitemapUrl)`.
+- `src/composables/useDraftGate.js` — reactive gate state.
+  `attemptUnlock` is async (it hashes user input).
+- `src/components/DraftGate.vue` — inline (not body-teleported) modal,
+  theme-token-driven CSS, WCAG 2.2 AA: real `<label>`, `:focus-visible`,
+  `aria-live` error region, `prefers-reduced-motion` honored.
+
+**Edits:**
+
+- `src/composables/usePageMeta.js` — emits the noindex meta when
+  `isPathDraft` is true and replaces the `<title>` / `<meta description>`
+  with generic stand-ins so the page slug and explicit `meta.title` /
+  `meta.description` don't leak in the SSG-rendered HTML.
+- `src/composables/usePageConfig.js` — `selectPage()` now propagates the
+  page's `draft` flag onto `currentPage` so the gate, the meta, and any
+  other consumer can read it.
+- `src/components/Home.vue` — wraps the page render in
+  `v-if="!isDraft || isUnlocked"` and renders `<DraftGate>` in its place
+  when locked.
+- `vite-plugin.js` — generates `siteRoot/public/robots.txt` and
+  `siteRoot/public/sitemap.xml` after `syncPublicDir`. Sitemap is dropped
+  when `site.url` is missing or every page is draft. Adds a `transform`
+  hook that hashes `site.json`'s plaintext `draftPassword` (replacing it
+  with `draftPasswordHash`) before the JSON is bundled.
+- `cms/public/robots.txt` — **removed** (the plugin owns it now).
+
+**What this protects against:**
+
+- ✓ Search engines indexing draft content (noindex meta, sitemap exclusion,
+  robots.txt Disallow, generic `<title>`).
+- ✓ Casual visitors who type a draft URL — they see only the gate.
+- ✓ `view-source` revealing the plaintext password — the plugin replaces
+  it with a SHA-256 hash before bundling.
+- ✓ `view-source` revealing the page slug or explicit `meta.title` /
+  `meta.description` via the rendered `<title>` / meta tags.
+
+**What it does NOT protect against — known v1 bounds:**
+
+- **`view-source` of any page reveals draft pages' `meta` and `content`
+  via `__INITIAL_STATE__`.** Pinia + ViteSSG serialize the full inflated
+  `siteConfig` (every page's content, meta, components) into every rendered
+  HTML file for hydration. So `view-source /about` shows you the full meta
+  and content of every draft page on the site. Stripping draft pages'
+  content from the bundle would require lazy-loading them after unlock —
+  a major architecture change. For "iterate before launch / not ultra
+  secure," current bound is appropriate; for confidential content, it isn't.
+- **`robots.txt` lists every draft path.** This is intentional (search
+  engines need to know what NOT to crawl) but does mean the URL list is
+  publicly readable. Don't put secret paths in `draftPaths`.
+- **Asset URLs aren't gated.** `dist/img/foo.jpg` is reachable to anyone
+  who knows the URL even if the page that references it is draft.
+- **Hash brute-force.** Weak passwords (e.g. `letmein`) fall to a rainbow
+  table in seconds. The hash blocks "view source → password" but not a
+  determined attacker. Use a long random password if it matters.
+- **noindex doesn't un-index.** If a page was previously indexed, adding
+  noindex tells Google to drop it on the next crawl, which can be days or
+  weeks. Use Search Console URL removal if you need it gone now.
+- **Public-page links to draft URLs leak the URL.** v1 doesn't rewrite
+  links; if a public page `<a>`s into a draft path, the URL appears in
+  the published HTML.
+- **Locale interaction.** `site.draft: true` in the base locale propagates
+  to all locales. To publish only one locale, set `"draft": false` in the
+  per-locale `site.json`.
+
+Tests: 414 passing (24 new for `draftMode`, 13 for `sitemapGenerator`,
+13 for `robotsGenerator`, 9 added to `usePageMeta`, 17 for `useDraftGate`).
+
 ## 1.0.0-beta.17
 
 ### WCAG 2.2 AA pass on the bundled components and base theme
