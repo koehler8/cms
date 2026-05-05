@@ -132,6 +132,82 @@ describe('buildSitemap', () => {
     const matches = xml.match(/<loc>https:\/\/example\.com\/about<\/loc>/g) || [];
     expect(matches.length).toBe(1);
   });
+
+  describe('multi-locale (hreflang alternates)', () => {
+    function multiLocaleArgs(extra = {}) {
+      return [
+        siteConfig({
+          url: 'https://example.com',
+          pages: { home: { path: '/' }, about: { path: '/about' } },
+          ...extra,
+        }),
+        { availableLocales: ['en', 'de', 'fr'], baseLocale: 'en' },
+      ];
+    }
+
+    it('declares xmlns:xhtml on <urlset> for multi-locale', () => {
+      const xml = buildSitemap(...multiLocaleArgs());
+      expect(xml).toContain('xmlns:xhtml="http://www.w3.org/1999/xhtml"');
+    });
+
+    it('does NOT declare xmlns:xhtml for single-locale', () => {
+      const xml = buildSitemap(
+        siteConfig({ pages: { about: { path: '/about' } } }),
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      expect(xml).not.toContain('xmlns:xhtml');
+    });
+
+    it('emits one xhtml:link per available locale + x-default per page', () => {
+      const xml = buildSitemap(...multiLocaleArgs());
+      const aboutBlock = xml.split('<url>').find((b) => b.includes('/about<'));
+      expect(aboutBlock).toBeDefined();
+      expect(aboutBlock).toContain('hreflang="en" href="https://example.com/about"');
+      expect(aboutBlock).toContain('hreflang="de" href="https://example.com/de/about"');
+      expect(aboutBlock).toContain('hreflang="fr" href="https://example.com/fr/about"');
+      expect(aboutBlock).toContain('hreflang="x-default" href="https://example.com/about"');
+    });
+
+    it('uses base-locale URL as <loc>', () => {
+      const xml = buildSitemap(...multiLocaleArgs());
+      expect(xml).toContain('<loc>https://example.com/about</loc>');
+      expect(xml).not.toContain('<loc>https://example.com/de/about</loc>');
+    });
+
+    it('drafts still excluded in multi-locale output', () => {
+      const xml = buildSitemap(
+        siteConfig({
+          pages: {
+            about: { path: '/about' },
+            secret: { path: '/secret', draft: true },
+          },
+        }),
+        { availableLocales: ['en', 'de'], baseLocale: 'en' },
+      );
+      expect(xml).toContain('/about');
+      expect(xml).not.toContain('/secret');
+    });
+
+    it('home page (path "/") emits root URLs across locales', () => {
+      const xml = buildSitemap(
+        siteConfig({ pages: { home: { path: '/' } } }),
+        { availableLocales: ['en', 'de'], baseLocale: 'en' },
+      );
+      expect(xml).toContain('<loc>https://example.com/</loc>');
+      expect(xml).toContain('hreflang="de" href="https://example.com/de"');
+      expect(xml).toContain('hreflang="en" href="https://example.com/"');
+    });
+
+    it('non-base options still produce single-locale output (boundary)', () => {
+      // Only one locale total (base) → behaves as single-locale
+      const xml = buildSitemap(
+        siteConfig({ pages: { about: { path: '/about' } } }),
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      expect(xml).not.toContain('xhtml:link');
+      expect(xml).toContain('<url><loc>https://example.com/about</loc></url>');
+    });
+  });
 });
 
 describe('getSitemapUrl', () => {

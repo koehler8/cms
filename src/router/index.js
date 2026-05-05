@@ -3,7 +3,7 @@ import { h } from 'vue';
 
 import Home from '../components/Home.vue';
 
-import { SUPPORTED_LOCALES } from '../constants/locales.js';
+import { availableLocales, baseLocale } from '../utils/loadConfig.js';
 
 const LocaleLayout = {
   name: 'LocaleLayout',
@@ -12,57 +12,85 @@ const LocaleLayout = {
   },
 };
 
-export const routes = [
-  {
+// Locales that should match the `/:locale/...` route — every available
+// locale on disk EXCEPT the base. The base locale is served at the
+// unprefixed path; emitting `/{baseLocale}/path` would be a duplicate URL.
+//
+// Read at module-load time. The vite-plugin's generated entry calls
+// setConfigLoader() synchronously before importing the app, so by the
+// time this module is evaluated (inside main.js), the singletons are
+// populated.
+function computeLocalePrefixes() {
+  if (!Array.isArray(availableLocales)) return [];
+  return availableLocales.filter((l) => typeof l === 'string' && l !== baseLocale);
+}
+
+export function buildRoutes(localePrefixes = computeLocalePrefixes()) {
+  const homeRoute = {
     path: '/',
     name: 'Home',
     component: Home,
     props: { pageId: 'home', pagePath: '/' },
-  },
-  {
-    path: `/:locale(${SUPPORTED_LOCALES.join('|')})`,
-    component: LocaleLayout,
-    children: [
-      {
-        path: '',
-        name: 'HomeLocale',
-        component: Home,
-        props: (route) => ({ pageId: 'home', pagePath: '/', locale: route.params.locale }),
-      },
-      {
-        path: ':pathMatch(.*)*',
-        name: 'LocaleDynamicPage',
-        component: Home,
-        props: (route) => {
-          const pathMatch = route.params.pathMatch;
-          const slugSegments = Array.isArray(pathMatch) ? pathMatch : [pathMatch || ''];
-          const rawSlug = `/${slugSegments.filter(Boolean).join('/')}`;
-          const normalizedSlug = rawSlug.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
-          return { pagePath: normalizedSlug, locale: route.params.locale };
-        },
-      },
-    ],
-  },
-  {
+  };
+
+  const catchAllRoute = {
     path: '/:pathMatch(.*)*',
     name: 'DynamicPage',
     component: Home,
     props: (route) => ({ pagePath: route.path || '/' }),
-  },
-];
+  };
+
+  if (!localePrefixes.length) {
+    // Single-locale site: don't register the locale-prefixed route at all.
+    // `/de/about` etc. fall into the catch-all → DynamicPage with a
+    // pagePath that won't match any page → home fallback.
+    return [homeRoute, catchAllRoute];
+  }
+
+  return [
+    homeRoute,
+    {
+      path: `/:locale(${localePrefixes.join('|')})`,
+      component: LocaleLayout,
+      children: [
+        {
+          path: '',
+          name: 'HomeLocale',
+          component: Home,
+          props: (route) => ({ pageId: 'home', pagePath: '/', locale: route.params.locale }),
+        },
+        {
+          path: ':pathMatch(.*)*',
+          name: 'LocaleDynamicPage',
+          component: Home,
+          props: (route) => {
+            const pathMatch = route.params.pathMatch;
+            const slugSegments = Array.isArray(pathMatch) ? pathMatch : [pathMatch || ''];
+            const rawSlug = `/${slugSegments.filter(Boolean).join('/')}`;
+            const normalizedSlug = rawSlug.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+            return { pagePath: normalizedSlug, locale: route.params.locale };
+          },
+        },
+      ],
+    },
+    catchAllRoute,
+  ];
+}
+
+export const routes = buildRoutes();
 
 function normalizeLocale(value = '') {
   return value.toLowerCase().split('-')[0];
 }
 
-export function applyRouterGuards(router) {
+export function applyRouterGuards(router, localePrefixes = computeLocalePrefixes()) {
   router.beforeEach((to) => {
     const rawLocale = (to.params.locale || '').toString().trim();
 
     if (rawLocale) {
       const normalized = normalizeLocale(rawLocale);
 
-      if (!SUPPORTED_LOCALES.includes(normalized)) {
+      if (!localePrefixes.includes(normalized)) {
         return { path: '/', replace: true };
       }
 
@@ -87,7 +115,7 @@ export function applyRouterGuards(router) {
       const navLang = (navigator.language || navigator.userLanguage || '').toString();
       const shortLang = normalizeLocale(navLang || '');
 
-      if (to.path === '/' && SUPPORTED_LOCALES.includes(shortLang)) {
+      if (to.path === '/' && localePrefixes.includes(shortLang)) {
         return { path: `/${shortLang}`, replace: true };
       }
     }

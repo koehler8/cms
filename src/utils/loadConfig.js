@@ -307,13 +307,16 @@ let _loadConfigData = async () => {
 };
 
 let _availableLocales = [];
+let _baseLocale = '';
 
 export function setConfigLoader(instance) {
   if (!instance) return;
   _loadConfigData = instance.loadConfigData;
   _availableLocales = instance.availableLocales || [];
+  _baseLocale = typeof instance.baseLocale === 'string' ? instance.baseLocale : '';
 }
 
 export { _availableLocales as availableLocales };
+export { _baseLocale as baseLocale };
 
 export const loadConfigData = (...args) => _loadConfigData(...args);

@@ -12,7 +12,6 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import vue from '@vitejs/plugin-vue';
 
-import { SUPPORTED_LOCALES } from './src/constants/locales.js';
 import { inflateFlatConfig } from './src/utils/inflateFlatConfig.js';
 import { buildRobotsTxt } from './src/utils/robotsGenerator.js';
 import { buildSitemap, getSitemapUrl } from './src/utils/sitemapGenerator.js';
@@ -321,16 +320,22 @@ export default function cmsPlugin(options = {}) {
   const {
     siteDir: siteDirOption = './site',
     frameworkRoot: frameworkRootOption = __dirname,
-    locales = SUPPORTED_LOCALES,
     themes: themePackages = [],
     extensions: extensionPackages = [],
   } = options;
+  // The previous `locales` option is no longer accepted: per-site available
+  // locales are now discovered from on-disk content directories. Passing
+  // `locales` is silently ignored (kept here as a destructure to swallow it
+  // gracefully; the `SUPPORTED_LOCALES` constant remains exported only for
+  // any consumer that imports it directly).
 
   // These are resolved relative to the project cwd at config time
   let siteDir;
   let siteRoot; // project root — parent of siteDir
   let frameworkRoot;
   let siteConfig;
+  let baseLocale = 'en';
+  let availableLocales = [];
   let pagePaths;
   let metadata;
   let tempIndexPath;
@@ -399,7 +404,7 @@ export default function cmsPlugin(options = {}) {
     const sitePublicDir = path.join(siteRoot, 'public');
     fs.mkdirSync(sitePublicDir, { recursive: true });
 
-    const sitemapXml = buildSitemap(siteConfig);
+    const sitemapXml = buildSitemap(siteConfig, { availableLocales, baseLocale });
     const sitemapPath = path.join(sitePublicDir, 'sitemap.xml');
     if (sitemapXml) {
       fs.writeFileSync(sitemapPath, sitemapXml, 'utf-8');
@@ -435,12 +440,24 @@ export default function cmsPlugin(options = {}) {
       const contentConfig = fs.existsSync(contentConfigPath)
         ? JSON.parse(fs.readFileSync(contentConfigPath, 'utf-8'))
         : {};
-      const baseLocale = contentConfig.baseLocale || 'en';
+      baseLocale = contentConfig.baseLocale || 'en';
       const configDir = path.join(contentDir, baseLocale);
       siteConfig = loadSplitConfig(configDir);
       if (!siteConfig) {
         throw new Error(`[@koehler8/cms] site config not found at ${configDir}`);
       }
+      // Discover locales actually present on disk: directories under
+      // content/ that contain a site.json. This becomes the authoritative
+      // list for both the SSG route fanout and the runtime locale-aware
+      // canonical/hreflang emission.
+      availableLocales = fs.existsSync(contentDir)
+        ? fs
+            .readdirSync(contentDir, { withFileTypes: true })
+            .filter((d) => d.isDirectory())
+            .map((d) => d.name)
+            .filter((name) => fs.existsSync(path.join(contentDir, name, 'site.json')))
+            .sort()
+        : [];
       pagePaths = collectPagePaths(siteConfig);
       metadata = extractSiteMetadata(siteConfig);
 
@@ -525,8 +542,14 @@ export default function cmsPlugin(options = {}) {
             const staticRoutes = new Set(['/admin']);
             pagePaths.forEach((routePath) => staticRoutes.add(routePath));
 
+            // Pre-render every page under each non-base locale prefix that
+            // actually has a content directory on disk. The base locale is
+            // served at the unprefixed path (it's already covered by
+            // staticRoutes) — emitting `/{baseLocale}/path` would create
+            // duplicate URLs that all render the same content.
+            const localePrefixes = availableLocales.filter((l) => l !== baseLocale);
             const localizedRoutes = new Set();
-            locales.forEach((locale) => {
+            localePrefixes.forEach((locale) => {
               pagePaths.forEach((routePath) => {
                 const localized =
                   routePath === '/' ? `/${locale}` : `/${locale}${routePath}`;
@@ -620,7 +643,12 @@ const loader = createConfigLoader(allModules);
 export const loadConfigData = loader.loadConfigData;
 export const mergeConfigTrees = loader.mergeConfigTrees;
 export const cloneConfig = loader.cloneConfig;
-export const availableLocales = loader.availableLocales;
+// availableLocales + baseLocale are emitted as build-time literals derived
+// from the same on-disk discovery the plugin uses for SSG includedRoutes
+// and sitemap generation. This guarantees the runtime sees the exact same
+// locale list as the build, regardless of glob-based heuristics.
+export const availableLocales = ${JSON.stringify(availableLocales)};
+export const baseLocale = ${JSON.stringify(baseLocale)};
 `;
       }
 

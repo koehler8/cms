@@ -1,5 +1,80 @@
 # Changelog
 
+## 1.0.0-beta.19
+
+### Canonical URLs — collapse the URL space to one per page
+
+Pages used to render at multiple URLs (`/about`, `/en/about`, `/de/about`,
+…), all serving identical content. This release picks one canonical URL
+per page, stops emitting the duplicates, and adds the SEO link tags that
+let crawlers handle the remaining edge cases. Wins: cleaner SEO,
+smaller `dist/` for sites that scaffolded extra locales, no more
+duplicate-content risk in Search Console.
+
+**URL space rule (matches Google / Stripe / GitHub conventions):**
+
+- Base locale → `/path` (no prefix).
+- Non-base locales actually populated on disk → `/{locale}/path`.
+- Trailing slash → no slash; recommended Amplify 301 (see "URL hygiene"
+  in `CLAUDE.md`).
+
+**Breaking changes:**
+
+- **URL space**: `/{baseLocale}/path` (e.g. `/en/about` on a US site)
+  no longer pre-renders, no longer routes via the locale layout, and is
+  no longer listed in `sitemap.xml`. Direct hits fall into the SPA
+  catch-all → home fallback (HTTP 200) until the separate 404-page
+  feature lands. Sites with inbound external links to old URLs should
+  add an Amplify 301 rule from `/<baseLocale>/<*>` → `/<*>`.
+- **SSG output**: non-base locale URLs (`/de/about`, etc.) are emitted
+  only when `site/content/{locale}/site.json` exists. Empty locale dirs
+  no longer produce phantom localized routes. Expect `dist/` to shrink
+  for any site that scaffolded all 15 supported locales without filling
+  them in.
+- **Plugin API**: the `locales` plugin option is removed (auto-discovered
+  from disk now). Verified by grep — no consumer site passes it.
+
+**Added:**
+
+- `<link rel="canonical" href="...">` per page in the rendered `<head>`.
+  Drafts skip it (gated content shouldn't advertise an authoritative URL).
+  Sites without a configured `site.url` skip it (can't build absolute).
+- `<link rel="alternate" hreflang="...">` per available locale plus
+  `x-default` for multi-locale sites. Single-locale sites emit none.
+- `<xhtml:link rel="alternate">` annotations in `sitemap.xml` for
+  multi-locale sites. Single-locale output is byte-identical to before.
+- New `src/utils/canonicalUrl.js` — single source of truth for the URL
+  formula, used by `usePageMeta`, `sitemapGenerator`, and any future
+  consumer that needs an absolute canonical URL.
+- New exports from `virtual:cms-config-loader` and the `loadConfig.js`
+  singleton: `baseLocale` (the active site's base locale, build-time
+  string literal). `availableLocales` is now also a build-time literal
+  derived from on-disk content discovery (was previously discovered from
+  Vite glob keys).
+- New helper `buildRoutes(localePrefixes)` exported from
+  `src/router/index.js` — used by tests to validate the locale regex
+  generation; default `routes` constant computes the prefixes from the
+  loadConfig singletons at module load time.
+
+**Caveats:**
+
+- **No true 404 yet.** Stale `/en/about`-style URLs render the home
+  page (HTTP 200) instead of returning a 404. The 404-page feature is
+  separate work; pair the two for a fully clean URL space.
+- **Sitemap-index for very large sites** is still future work. Today's
+  sitemap is single-file; sites with 1000+ pages or many locales may
+  want a sitemap-index later.
+- **Multi-locale sites with empty/sparse locale dirs.** This PR's
+  on-disk discovery only counts dirs that contain `site.json`. Some
+  sites (notably the 9 with all 15 locale dirs scaffolded) may have
+  `de/site.json` etc. with placeholder-only content. Those are still
+  emitted today; cleanup is per-site work — drop the dirs you don't
+  use.
+
+Tests: 445 passing (12 new for `canonicalUrl`, 7 added to
+`sitemapGenerator`, 9 added to `usePageMeta`, 13 in router after
+refactor).
+
 ## 1.0.0-beta.18
 
 ### Draft mode — `noindex` + password gate for in-progress content

@@ -31,6 +31,7 @@ templates/index.html    EJS-templated HTML shell
 - **Content directory**: All translatable copy lives in `site/content/` with per-locale subdirectories (`en/`, `de/`, `ja/`, etc.) that mirror each other's structure. A `content.config.json` at the root specifies the base locale. All files use flat dot-notation keys sorted alphabetically. The base locale is loaded first; selected locale overrides only where keys are specified.
 - **Theme tokens -> CSS vars**: Theme manifests define design tokens; `themeManager.js` converts them to CSS custom properties on `document.documentElement`.
 - **Draft mode**: `site.draft`, `site.draftPaths[]`, page `draft` flags mark content as not-yet-public. Single source of truth is `src/utils/draftMode.js` (`isPathDraft`); used by `usePageMeta` (noindex meta), `useDraftGate` + `DraftGate.vue` (renders in place of `<main>` so SSG HTML on disk contains only the gate), and `vite-plugin.js` (generates `robots.txt` and `sitemap.xml` dynamically per build). `site.draftPassword` is one site-wide password persisted via `sessionStorage`. Empty password is a deliberate fail-safe state — gate still appears but accepts empty.
+- **Canonical URLs**: each page renders at exactly one URL — base locale at `/path`, non-base locales (only those with content on disk) at `/{locale}/path`. `src/utils/canonicalUrl.js` is the single URL-formula source; consumed by `usePageMeta` (emits `<link rel="canonical">` and `<link rel="alternate" hreflang="...">` in `<head>`) and `sitemapGenerator` (emits `<xhtml:link>` alternates for multi-locale). The router's `/:locale/...` regex is built from `availableLocales` minus `baseLocale`, so `/en/about` (when `en` is base) doesn't match the locale layout and falls into the SPA catch-all.
 
 ### Data Flow
 
@@ -101,6 +102,7 @@ The CI uses `npm install --ignore-scripts` (skips the lru-cache patch since it's
 | Build scripts / CLI | `scripts/`, `bin/` |
 | Add or modify tests | `tests/`, `vitest.config.js` |
 | Draft mode behavior | `src/utils/draftMode.js`, `src/composables/useDraftGate.js`, `src/components/DraftGate.vue`, `src/utils/sitemapGenerator.js`, `src/utils/robotsGenerator.js`, `vite-plugin.js` (writeSeoFiles) |
+| Canonical / hreflang | `src/utils/canonicalUrl.js` (formula), `src/composables/usePageMeta.js` (head emission), `src/utils/sitemapGenerator.js` (xhtml:link alternates), `src/router/index.js` (`buildRoutes` + `availableLocales` minus base), `vite-plugin.js` (on-disk locale discovery, virtual config exports) |
 
 ## Lockfile and npm version (this is the #1 source of consumer-site deploy failures)
 
@@ -169,6 +171,23 @@ When adding new theme tokens that will be rendered as text, follow the existing 
 ### What to do if a fix is non-trivial
 
 If preserving AA conformance for a feature requires a structural change you're not sure about — **stop and ask before merging**. AA is a hard requirement for shipped sites; getting it wrong creates legal exposure for the site owner. A short conversation up-front beats a regression that ships and gets caught months later in an audit.
+
+## URL hygiene
+
+The framework emits canonical URLs without a trailing slash (`/about`, not `/about/`). `vite-ssg`'s `dirStyle: 'nested'` writes `dist/about/index.html`, which AWS Amplify (and most static hosts) serve for both `/about` and `/about/` — same file, two URLs. To pick one and 301 the other, consumer sites should add an Amplify customRule:
+
+```
+Source: /<*>/    Target: /<*>    Status: 301
+```
+
+Add it in the Amplify console under "Rewrites and redirects" (or in the site's `amplify.yml` `customRules` if preferred). The framework already emits a `<link rel="canonical">` per page, so search engines pick the canonical regardless of which URL they crawl — the 301 is belt-and-suspenders for analytics cleanliness and inbound-link consolidation.
+
+Locale URLs follow the same single-URL rule:
+- Base locale at unprefixed `/path`.
+- Non-base locales (with content on disk) at `/{locale}/path`.
+- `/{baseLocale}/path` does NOT route, does NOT pre-render, does NOT appear in sitemap.
+
+`/{baseLocale}/path` URLs that linger from before this change land in the SPA catch-all and currently render the home page (HTTP 200). Until the 404-page feature ships, sites with old inbound links should add a per-site 301 from `/<baseLocale>/<*>` → `/<*>`.
 
 ## Gotchas
 

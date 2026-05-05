@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ref } from 'vue';
 
 // Mock @unhead/vue. We capture the head factory so tests can read what it
@@ -10,22 +10,41 @@ vi.mock('@unhead/vue', () => ({
   }),
 }));
 
+// Mock the loadConfig singletons so tests can vary availableLocales /
+// baseLocale per-case. The mock returns getters that read from mutable
+// module-level state so changes between tests are picked up.
+const mockState = {
+  availableLocales: [],
+  baseLocale: '',
+};
+vi.mock('../../src/utils/loadConfig.js', () => ({
+  get availableLocales() { return mockState.availableLocales; },
+  get baseLocale() { return mockState.baseLocale; },
+}));
+
 import { usePageMeta } from '../../src/composables/usePageMeta.js';
 
 function readHead() {
-  if (!lastHeadFactory) return { title: '', meta: [] };
+  if (!lastHeadFactory) return { title: '', meta: [], link: [] };
   return lastHeadFactory();
 }
 
 describe('usePageMeta', () => {
-  function setup(siteOverrides = {}, pageOverrides = {}) {
+  function setup(siteOverrides = {}, pageOverrides = {}, options = {}) {
     lastHeadFactory = null;
+    mockState.availableLocales = options.availableLocales ?? [];
+    mockState.baseLocale = options.baseLocale ?? '';
     const siteData = ref({
       site: { title: 'My Site', description: 'Site description', ...siteOverrides },
     });
     const currentPage = ref(pageOverrides);
-    return usePageMeta({ siteData, currentPage });
+    return usePageMeta({ siteData, currentPage, locale: () => options.locale ?? '' });
   }
+
+  beforeEach(() => {
+    mockState.availableLocales = [];
+    mockState.baseLocale = '';
+  });
 
   describe('pageMetaTitle', () => {
     it('returns site title for home page', () => {
@@ -153,6 +172,117 @@ describe('usePageMeta', () => {
         { id: 'wip', path: '/wip', draft: true, meta: { description: 'Confidential.' } },
       );
       expect(pageMetaDescription.value).toBe('');
+    });
+  });
+
+  describe('canonical link', () => {
+    it('emits <link rel="canonical"> for non-draft pages with site.url', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'about', path: '/about' },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const canonical = head.link.find((l) => l.rel === 'canonical');
+      expect(canonical).toBeDefined();
+      expect(canonical.href).toBe('https://example.com/about');
+    });
+
+    it('does NOT emit canonical for draft pages', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'wip', path: '/wip', draft: true },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const canonical = head.link.find((l) => l.rel === 'canonical');
+      expect(canonical).toBeUndefined();
+    });
+
+    it('does NOT emit canonical when site.url is missing', () => {
+      setup(
+        {},
+        { id: 'about', path: '/about' },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const canonical = head.link.find((l) => l.rel === 'canonical');
+      expect(canonical).toBeUndefined();
+    });
+
+    it('non-base locale produces /{locale}/path canonical', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'about', path: '/about' },
+        { availableLocales: ['en', 'de'], baseLocale: 'en', locale: 'de' },
+      );
+      const head = readHead();
+      const canonical = head.link.find((l) => l.rel === 'canonical');
+      expect(canonical.href).toBe('https://example.com/de/about');
+    });
+
+    it('base locale on home page emits root canonical', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'home', path: '/' },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const canonical = head.link.find((l) => l.rel === 'canonical');
+      expect(canonical.href).toBe('https://example.com/');
+    });
+  });
+
+  describe('hreflang alternates', () => {
+    it('does NOT emit hreflang for single-locale sites', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'about', path: '/about' },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const hreflangs = head.link.filter((l) => l.rel === 'alternate');
+      expect(hreflangs).toEqual([]);
+    });
+
+    it('emits one hreflang per available locale + x-default for multi-locale', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'about', path: '/about' },
+        { availableLocales: ['en', 'de', 'fr'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const hreflangs = head.link.filter((l) => l.rel === 'alternate');
+      const codes = hreflangs.map((h) => h.hreflang).sort();
+      expect(codes).toEqual(['de', 'en', 'fr', 'x-default']);
+      const en = hreflangs.find((h) => h.hreflang === 'en');
+      const de = hreflangs.find((h) => h.hreflang === 'de');
+      const xdef = hreflangs.find((h) => h.hreflang === 'x-default');
+      expect(en.href).toBe('https://example.com/about');
+      expect(de.href).toBe('https://example.com/de/about');
+      expect(xdef.href).toBe('https://example.com/about');
+    });
+
+    it('does NOT emit hreflang for draft pages even on multi-locale sites', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'wip', path: '/wip', draft: true },
+        { availableLocales: ['en', 'de'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const hreflangs = head.link.filter((l) => l.rel === 'alternate');
+      expect(hreflangs).toEqual([]);
+    });
+
+    it('does NOT emit hreflang when site.url is missing', () => {
+      setup(
+        {},
+        { id: 'about', path: '/about' },
+        { availableLocales: ['en', 'de'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const hreflangs = head.link.filter((l) => l.rel === 'alternate');
+      expect(hreflangs).toEqual([]);
     });
   });
 });

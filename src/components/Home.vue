@@ -90,7 +90,7 @@ const {
   attemptUnlock,
 } = useDraftGate({ siteData, currentPage });
 
-usePageMeta({ siteData, currentPage });
+usePageMeta({ siteData, currentPage, locale: () => props.locale });
 
 const {
   isComingSoonVisible,
