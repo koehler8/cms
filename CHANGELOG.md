@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.0.0-beta.23
+
+### Fix: locale discovery missed translation-only locale dirs
+
+beta.19 introduced on-disk locale discovery to replace the
+hardcoded-15-locales fanout. The check required `site.json` to be
+present in each locale dir. That was overly strict: many sites author
+per-locale page overrides (`pages/home.json` etc.) and a per-locale
+`shared.json` without overriding the site metadata, since the brand
+name typically stays the same across languages. Those locales were
+silently dropped from `availableLocales` after beta.19, which made:
+
+- The bundled `Header` locale dropdown disappear (it hides when
+  `availableLocales.length <= 1`).
+- Per-locale URLs stop pre-rendering.
+- `hreflang` alternates collapse to a single locale.
+
+`coastalcollective.life` exhibited all three after its beta.22 bump.
+
+**Fix:** discovery now treats a locale directory as present if any of
+`site.json`, `shared.json`, or a `pages/` subdir exists — matching the
+pre-beta.19 glob-based behavior. Sites with the translation-only
+scaffolding pattern (no per-locale `site.json`) start being recognized
+again with no per-site changes.
+
+Tests: 557 still passing. Verified end-to-end on a coastal-pattern
+fixture (locale dirs with `shared.json` + `pages/home.json`, no
+`site.json`): all locales discovered, pre-rendered, and hreflang
+alternates emit correctly.
+
 ## 1.0.0-beta.22
 
 ### Image-variant pipeline + auto-generated breadcrumb JSON-LD

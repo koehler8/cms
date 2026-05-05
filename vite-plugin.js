@@ -466,16 +466,23 @@ export default function cmsPlugin(options = {}) {
       if (!siteConfig) {
         throw new Error(`[@koehler8/cms] site config not found at ${configDir}`);
       }
-      // Discover locales actually present on disk: directories under
-      // content/ that contain a site.json. This becomes the authoritative
-      // list for both the SSG route fanout and the runtime locale-aware
-      // canonical/hreflang emission.
+      // Discover locales actually present on disk: any directory under
+      // content/ that has at least one of `site.json`, `shared.json`, or
+      // a `pages/` subdir is treated as a real locale. (Earlier the check
+      // required `site.json` specifically — too strict for sites that
+      // author per-locale page overrides without overriding the site
+      // metadata, which is the common pattern for translation-only locale
+      // dirs.)
+      const localeDirHasContent = (dir) =>
+        fs.existsSync(path.join(dir, 'site.json'))
+        || fs.existsSync(path.join(dir, 'shared.json'))
+        || fs.existsSync(path.join(dir, 'pages'));
       availableLocales = fs.existsSync(contentDir)
         ? fs
             .readdirSync(contentDir, { withFileTypes: true })
             .filter((d) => d.isDirectory())
             .map((d) => d.name)
-            .filter((name) => fs.existsSync(path.join(contentDir, name, 'site.json')))
+            .filter((name) => localeDirHasContent(path.join(contentDir, name)))
             .sort()
         : [];
       pagePaths = collectPagePaths(siteConfig);
