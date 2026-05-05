@@ -5,6 +5,19 @@ import Home from '../components/Home.vue';
 
 import { availableLocales, baseLocale } from '../utils/loadConfig.js';
 
+// Test for `/{baseLocale}` or `/{baseLocale}/...` paths — these no longer
+// pre-render or match the locale layout (the canonical URL for the base
+// locale is unprefixed). Used by the router guard to redirect in-SPA
+// navigation so external clicks land on the canonical URL instead of the
+// SPA catch-all → 404 path.
+function stripBaseLocalePrefix(targetPath, base) {
+  if (!base || !targetPath) return null;
+  const root = `/${base}`;
+  if (targetPath === root) return '/';
+  if (targetPath.startsWith(`${root}/`)) return targetPath.slice(root.length) || '/';
+  return null;
+}
+
 const LocaleLayout = {
   name: 'LocaleLayout',
   render() {
@@ -85,6 +98,17 @@ function normalizeLocale(value = '') {
 
 export function applyRouterGuards(router, localePrefixes = computeLocalePrefixes()) {
   router.beforeEach((to) => {
+    // SPA-side redirect for stale base-locale-prefixed URLs. When a user
+    // navigates inside the app to `/en/about` (and `en` is base), the URL
+    // doesn't pre-render and the catch-all renders the 404 page. Rewrite
+    // to the canonical unprefixed equivalent. Direct external hits to
+    // these URLs still need an Amplify customRule on the host side — see
+    // CLAUDE.md "URL hygiene".
+    const stripped = stripBaseLocalePrefix(to.path, baseLocale);
+    if (stripped !== null && stripped !== to.path) {
+      return { path: stripped, replace: true };
+    }
+
     const rawLocale = (to.params.locale || '').toString().trim();
 
     if (rawLocale) {

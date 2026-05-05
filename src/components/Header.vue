@@ -97,7 +97,7 @@
                 <li v-for="locale in availableLocales" :key="locale">
                   <a
                     class="locale-option"
-                    :href="`/${locale}`"
+                    :href="localeHref(locale)"
                     @click="handleLocaleLinkClick(locale)"
                   >
                     <span class="locale-flag" aria-hidden="true">{{ localeEmojis[locale] || '🌐' }}</span>
@@ -120,7 +120,7 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, useSlots, 
   import { resolveAsset } from '../utils/assetResolver.js';
 import { trackEvent } from '../utils/analytics.js';
 import { getExtensionComponent } from '../extensions/extensionLoader.js';
-import { availableLocales as siteLocales } from '../utils/loadConfig.js';
+import { availableLocales as siteLocales, baseLocale as siteBaseLocale } from '../utils/loadConfig.js';
 
   const slots = useSlots();
   const hasActionsSlot = computed(() => Boolean(slots.actions));
@@ -129,6 +129,14 @@ const isLangOpen = ref(false);
 const isHeaderCompact = ref(false);
 const currentLocale = ref('');
 const availableLocales = computed(() => siteLocales.map((code) => code.trim()).filter(Boolean));
+
+// The base locale is served at the unprefixed root path (`/`) — clicking
+// the dropdown item for it should NOT navigate to `/{baseLocale}` because
+// that URL doesn't pre-render and would 404. Build the link path
+// accordingly: base → `/`, others → `/{locale}`.
+const localeHref = (locale) => {
+  return locale === siteBaseLocale ? '/' : `/${locale}`;
+};
 const localeLabels = {
   en: 'English',
   fr: 'Français',

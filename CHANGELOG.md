@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.0.0-beta.24
+
+### Fix: Header locale dropdown sent base-locale clicks to a 404
+
+After beta.19's URL-space cleanup, `/en` (when `en` is the base locale)
+no longer pre-renders or routes — the canonical URL is `/`. But the
+bundled Header's locale dropdown still hardcoded its links to
+`/${locale}` for every option, so clicking "EN" on a multi-locale site
+landed on a 404. Reported on coastalcollective.life after its beta.23
+bump restored the dropdown.
+
+**Two fixes:**
+
+1. `Header.vue` now builds the locale link via `localeHref(locale)`:
+   the base locale points at `/`, others at `/{locale}`. Reads
+   `baseLocale` from the `loadConfig` singleton (already populated by
+   the vite-plugin's virtual config module since beta.19).
+2. `applyRouterGuards` adds a beforeEach guard that catches in-SPA
+   navigation to `/{baseLocale}/...` and rewrites to the canonical
+   unprefixed path. So even if a component or external link inside the
+   site tries to go to `/en/about`, it lands on `/about` instead of the
+   404 page.
+
+**Direct external hits to `/{baseLocale}/...` URLs still 404** — the
+SSG doesn't pre-render those paths and the SPA can only redirect
+client-side after the page boots. For sites with inbound external
+links to old `/{baseLocale}/*` URLs, add an Amplify customRule:
+
+```
+Source: /<baseLocale>/<*>    Target: /<*>    Status: 301
+```
+
+(e.g. for an English-base site: `/en/<*>` → `/<*>`.) Add it in the
+Amplify console under "Rewrites and redirects". Documented in
+`CLAUDE.md` "URL hygiene".
+
+Tests: 557 still passing.
+
 ## 1.0.0-beta.23
 
 ### Fix: locale discovery missed translation-only locale dirs

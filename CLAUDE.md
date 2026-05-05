@@ -199,7 +199,13 @@ Locale URLs follow the same single-URL rule:
 - Non-base locales (with content on disk) at `/{locale}/path`.
 - `/{baseLocale}/path` does NOT route, does NOT pre-render, does NOT appear in sitemap.
 
-`/{baseLocale}/path` URLs that linger from before this change land in the SPA catch-all and currently render the home page (HTTP 200). Until the 404-page feature ships, sites with old inbound links should add a per-site 301 from `/<baseLocale>/<*>` → `/<*>`.
+`/{baseLocale}/path` URLs (e.g. `/en/about` on a US site) no longer pre-render or match the locale layout. The bundled `Header` builds dropdown links correctly (`baseLocale → /`, others → `/{locale}`) and `applyRouterGuards` redirects in-SPA navigation that still tries `/{baseLocale}/...` to the canonical unprefixed path. **Direct external hits aren't covered by either** — those serve the SSG-generated `404.html`. Sites with inbound external links to legacy `/{baseLocale}/...` URLs should add an Amplify customRule:
+
+```
+Source: /<baseLocale>/<*>    Target: /<*>    Status: 301
+```
+
+For example, on an English-base site: `Source: /en/<*>  Target: /<*>  Status: 301`. Add it in the Amplify console under "Rewrites and redirects" (placed before any catch-all SPA fallback rule).
 
 ## Gotchas
 
