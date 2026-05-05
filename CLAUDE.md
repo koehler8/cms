@@ -37,6 +37,8 @@ templates/index.html    EJS-templated HTML shell
 - **JSON-LD structured data**: pages and `site.json` accept a top-level `jsonld` key (object or array of objects). `src/utils/jsonLd.js` normalizes both into `<script type="application/ld+json">` blocks; site blocks emit before page blocks. `@context` is defaulted to `https://schema.org` when authors omit it. Drafts and 404s skip JSON-LD entirely.
 - **Web App Manifest**: `vite-plugin.js`'s `writeSeoFiles` generates `siteRoot/public/manifest.json` from `site.title` / `site.description` / `site.manifest.{themeColor, backgroundColor, startUrl, display, icons}`. `templates/index.html` references it via `<link rel="manifest">` plus `<meta name="theme-color">`. `src/utils/webAppManifest.js` is the pure builder.
 - **Site verification meta**: `site.siteVerification.{google, bing, pinterest, facebook, yandex}` in `site.json` emits the matching `<meta name="..." content="...">` (e.g. `google-site-verification`, `msvalidate.01`, etc.) on every page via `usePageMeta`.
+- **Image variants**: `scripts/generate-image-variants.js` (powered by `sharp`) reads `site/assets/img/_source/**` at build time and writes `{name}-{width}.{format}` variants into `site/assets/img/`. Default matrix: 6 widths × 3 formats (avif, webp, jpg). Configurable via `site.imageVariants.{widths, formats, quality}` in `site.json`. Bundled components consume the variants via `useResponsiveImage` (`src/utils/imageSources.js`) which builds the `<picture>` `srcset` from on-disk filenames.
+- **Auto-breadcrumbs**: `src/utils/breadcrumbs.js` derives a `BreadcrumbList` JSON-LD from the current path. `usePageMeta` appends it AFTER any author-supplied `jsonld` blocks. Skipped on home/draft/404/missing `site.url`, opt-out via per-page `meta.breadcrumbs: false`. Label resolution: matching page's `meta.title` first, slug-formatted segment fallback.
 
 ### Data Flow
 
@@ -111,6 +113,8 @@ The CI uses `npm install --ignore-scripts` (skips the lru-cache patch since it's
 | OG / Twitter / per-page meta | `src/utils/socialMeta.js` (buildSocialMeta), `src/composables/usePageMeta.js` (useHead emission), `templates/index.html` (site-wide JSON-LD only) |
 | 404 page / not-found behavior | `src/components/NotFound.vue` (bundled fallback), `src/composables/usePageConfig.js` (selectPage returns sentinel), `src/composables/usePageMeta.js` (isNotFound title/noindex), `vite-plugin.js` (pre-renders /404, copies to 404.html via ssgOptions.onFinished) |
 | JSON-LD / Web App Manifest / site verification | `src/utils/jsonLd.js` (page+site block normalization), `src/utils/webAppManifest.js` (manifest builder), `src/composables/usePageMeta.js` (script[] + verify meta emission), `vite-plugin.js` (writeSeoFiles writes manifest.json), `templates/index.html` (link rel=manifest + theme-color) |
+| Image variants pipeline | `scripts/generate-image-variants.js` (sharp orchestrator), `bin/cms-generate-image-variants.js` (CLI), `src/utils/imageSources.js` (`useResponsiveImage` runtime consumer) |
+| Auto-breadcrumb JSON-LD | `src/utils/breadcrumbs.js` (path → BreadcrumbList), `src/composables/usePageMeta.js` (appends to script[]) |
 
 ## Lockfile and npm version (this is the #1 source of consumer-site deploy failures)
 

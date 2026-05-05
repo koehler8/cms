@@ -4,6 +4,7 @@ import { isPathDraft } from '../utils/draftMode.js';
 import { buildCanonicalUrl } from '../utils/canonicalUrl.js';
 import { buildSocialMeta } from '../utils/socialMeta.js';
 import { buildJsonLdScripts } from '../utils/jsonLd.js';
+import { buildBreadcrumbList } from '../utils/breadcrumbs.js';
 import { availableLocales as configAvailableLocales, baseLocale as configBaseLocale } from '../utils/loadConfig.js';
 
 // Site-verification meta-tag names per platform. Authors set
@@ -204,6 +205,25 @@ export function usePageMeta({ siteData, currentPage, locale }) {
       isDraft: isDraft.value,
       isNotFound: isNotFound.value,
     });
+
+    // Auto-generated BreadcrumbList JSON-LD. Appended after any
+    // author-supplied jsonld blocks so authors can override by emitting a
+    // hand-authored BreadcrumbList of their own (Google takes the first
+    // valid one when multiple are present).
+    const breadcrumb = buildBreadcrumbList({
+      siteUrl: siteUrl.value,
+      currentPage: currentPage.value,
+      pages: siteData.value?.pages,
+      baseLocale: configBaseLocale,
+      locale: localeValue.value,
+    });
+    if (breadcrumb && !isDraft.value && !isNotFound.value) {
+      script.push({
+        type: 'application/ld+json',
+        innerHTML: JSON.stringify(breadcrumb),
+        key: 'jsonld-BreadcrumbList',
+      });
+    }
 
     return {
       title: pageMetaTitle.value,

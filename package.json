@@ -1,6 +1,6 @@
 {
   "name": "@koehler8/cms",
-  "version": "1.0.0-beta.21",
+  "version": "1.0.0-beta.22",
   "description": "Vertex CMS — lightweight, config-driven Vue 3 framework with theming, extensions, and SSG support",
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,15 @@
   "bugs": {
     "url": "https://github.com/koehler8/cms/issues"
   },
-  "keywords": ["vue", "cms", "vite", "ssg", "theming", "extensions", "config-driven"],
+  "keywords": [
+    "vue",
+    "cms",
+    "vite",
+    "ssg",
+    "theming",
+    "extensions",
+    "config-driven"
+  ],
   "scripts": {
     "postinstall": "node scripts/patch-lru-cache-tla.js",
     "test": "vitest run",
@@ -46,6 +54,7 @@
   },
   "bin": {
     "cms-generate-public-assets": "./bin/cms-generate-public-assets.js",
+    "cms-generate-image-variants": "./bin/cms-generate-image-variants.js",
     "cms-validate-themes": "./bin/cms-validate-themes.js",
     "cms-validate-extensions": "./bin/cms-validate-extensions.js",
     "cms-create-theme": "./bin/cms-create-theme.js",
@@ -77,7 +86,8 @@
     "canvas": "^3.2.0",
     "dotenv": "^17.2.3",
     "pinia": "^3.0.1",
-    "png-to-ico": "^3.0.1"
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.33.5"
   },
   "devDependencies": {
     "@vue/test-utils": "^2.4.6",

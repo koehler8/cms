@@ -1,5 +1,96 @@
 # Changelog
 
+## 1.0.0-beta.22
+
+### Image-variant pipeline + auto-generated breadcrumb JSON-LD
+
+**Image-variant pipeline (Tier-3 #1)**
+
+`useResponsiveImage` has been wired into the bundled components for ages,
+but the build never produced the variant files it expects. Sites were
+shipping a single full-size JPEG and `srcset` rendered empty. New script
+fixes that by generating the matrix at build time.
+
+- New `scripts/generate-image-variants.js` + `bin/cms-generate-image-variants.js`.
+- New convention: drop originals at `site/assets/img/_source/{name}.{ext}`.
+  The script reads them and writes `{name}-{width}.{format}` variants
+  back to `site/assets/img/`. Subdirectory layout is preserved.
+- Default matrix: widths `[320, 640, 960, 1280, 1920, 2560]` × formats
+  `[avif, webp, jpg]` = 18 variants per source. Configurable via
+  `site.imageVariants.{widths, formats, quality}`.
+- Sources smaller than a requested width are clamped (no enlargement).
+- mtime-based skipping: re-running the script only regenerates variants
+  whose source has changed since the last run.
+- Powered by [`sharp`](https://sharp.pixelplumbing.com/) (new dependency).
+  Native binaries prebuilt for darwin/linux x64+arm64 — no system
+  libraries to install on AWS Amplify.
+
+**Wire-up in consumer sites** (one-time):
+
+1. Move existing flat `site/assets/img/*.{jpg,png}` originals into
+   `site/assets/img/_source/`.
+2. Add to `package.json` scripts:
+   `"generate:image-variants": "cms-generate-image-variants --site-dir ./site"`.
+3. Add to `amplify.yml` preBuild commands:
+   `npm run generate:image-variants` (before `generate:public-assets`
+   and `build:ssg`).
+4. First build generates the matrix; subsequent builds reuse it.
+
+**Auto-generated breadcrumb JSON-LD (Tier-3 #6)**
+
+`usePageMeta` now emits a `BreadcrumbList` schema for any non-home,
+non-draft, non-404 page with `site.url` set. Drives Google's breadcrumb
+display in search results without authors having to write the schema.
+
+- New `src/utils/breadcrumbs.js` (pure helper).
+- Path → segment list → `ListItem` entries. First entry is always
+  `Home` linked at the canonical home URL; subsequent entries are each
+  prefix path of the current URL.
+- **Label resolution priority** per intermediate path:
+  1. If a page exists at that path, use its `meta.title`.
+  2. Otherwise, format the slug (`our-team` → `Our Team`).
+- The leaf entry (current page) DOES include its `item` URL — Google
+  accepts both forms; including is more interoperable.
+- **Skipped on**: home, drafts, 404s, missing `site.url`, single-locale
+  home page with `/` path.
+- **Per-page opt-out**: `pages/{id}.json` `meta.breadcrumbs: false`.
+- Locale-prefixed URLs: non-base locales render breadcrumb item URLs
+  with the `/{locale}/...` prefix; the path-segment hierarchy itself
+  doesn't include the locale prefix as a step.
+
+**New files:**
+
+- `scripts/generate-image-variants.js` — orchestrator + sharp pipeline
+- `bin/cms-generate-image-variants.js` — CLI wrapper
+- `src/utils/breadcrumbs.js` — `buildBreadcrumbList(...)`
+- `tests/scripts/generate-image-variants.spec.js` (18 tests, fixture-driven)
+- `tests/utils/breadcrumbs.spec.js` (17 tests)
+
+**Edits:**
+
+- `package.json` — add `sharp ^0.33.5` dep + new bin entry
+- `src/composables/usePageMeta.js` — appends BreadcrumbList JSON-LD after
+  any author-supplied `jsonld` blocks. Authors can override by emitting
+  their own hand-authored `BreadcrumbList` in `pages/{id}.json` `jsonld`.
+
+**Caveats:**
+
+- **Migration is mandatory** for the image pipeline to actually do
+  anything. Sites that don't move originals into `_source/` keep
+  shipping single-size JPEGs (no regression — `useResponsiveImage`
+  already falls back gracefully — but no improvement either).
+- **AVIF encoding is slow.** A 2560-wide AVIF can take 1–3 seconds per
+  source. Run on developer machines or CI before pushing; don't
+  regenerate on every Amplify build (mtime-skip handles repeat runs).
+- **`sharp`'s install size** is ~50MB. Acceptable trade for the format
+  support (`canvas`-based generation can't produce AVIF).
+- **Breadcrumb schema is opt-out, not opt-in.** Sites that don't want
+  breadcrumb display in Google should set `meta.breadcrumbs: false` on
+  pages where it's misleading (rare).
+
+Tests: 557 passing (18 new for image-variants, 17 for breadcrumbs, 8
+added to usePageMeta).
+
 ## 1.0.0-beta.21
 
 ### Per-page JSON-LD, Web App Manifest, and Search Console verification hooks

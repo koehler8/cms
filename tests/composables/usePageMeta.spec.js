@@ -456,10 +456,12 @@ describe('usePageMeta', () => {
         { id: 'about', path: '/about', jsonld: { '@type': 'AboutPage', name: 'About Us' } },
       );
       const head = readHead();
-      expect(head.script).toBeDefined();
-      expect(head.script).toHaveLength(1);
-      expect(head.script[0].type).toBe('application/ld+json');
-      const parsed = JSON.parse(head.script[0].innerHTML);
+      const authored = head.script.filter((s) => {
+        try { return JSON.parse(s.innerHTML)['@type'] !== 'BreadcrumbList'; } catch { return true; }
+      });
+      expect(authored).toHaveLength(1);
+      expect(authored[0].type).toBe('application/ld+json');
+      const parsed = JSON.parse(authored[0].innerHTML);
       expect(parsed['@type']).toBe('AboutPage');
       expect(parsed['@context']).toBe('https://schema.org');
     });
@@ -470,9 +472,12 @@ describe('usePageMeta', () => {
         { id: 'about', path: '/about', jsonld: { '@type': 'AboutPage' } },
       );
       const head = readHead();
-      expect(head.script).toHaveLength(2);
-      expect(JSON.parse(head.script[0].innerHTML)['@type']).toBe('WebSite');
-      expect(JSON.parse(head.script[1].innerHTML)['@type']).toBe('AboutPage');
+      const authored = head.script.filter((s) => {
+        try { return JSON.parse(s.innerHTML)['@type'] !== 'BreadcrumbList'; } catch { return true; }
+      });
+      expect(authored).toHaveLength(2);
+      expect(JSON.parse(authored[0].innerHTML)['@type']).toBe('WebSite');
+      expect(JSON.parse(authored[1].innerHTML)['@type']).toBe('AboutPage');
     });
 
     it('emits no JSON-LD on draft pages', () => {
@@ -491,6 +496,92 @@ describe('usePageMeta', () => {
       );
       const head = readHead();
       expect(head.script).toEqual([]);
+    });
+  });
+
+  describe('auto-generated breadcrumb JSON-LD', () => {
+    function findBreadcrumb(head) {
+      return head.script.find((s) => {
+        try {
+          return JSON.parse(s.innerHTML)['@type'] === 'BreadcrumbList';
+        } catch {
+          return false;
+        }
+      });
+    }
+
+    it('emits a BreadcrumbList for non-home, non-draft pages with site.url', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'about', path: '/about' },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const bc = findBreadcrumb(readHead());
+      expect(bc).toBeDefined();
+      const list = JSON.parse(bc.innerHTML);
+      expect(list.itemListElement).toHaveLength(2);
+      expect(list.itemListElement[0].name).toBe('Home');
+      expect(list.itemListElement[1].name).toBe('About');
+    });
+
+    it('does NOT emit breadcrumbs on the home page', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'home', path: '/' },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      expect(findBreadcrumb(readHead())).toBeUndefined();
+    });
+
+    it('does NOT emit breadcrumbs on draft pages', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'wip', path: '/wip', draft: true },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      expect(findBreadcrumb(readHead())).toBeUndefined();
+    });
+
+    it('does NOT emit breadcrumbs on 404 pages', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: '__not_found__', path: '/missing', isNotFound: true },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      expect(findBreadcrumb(readHead())).toBeUndefined();
+    });
+
+    it('does NOT emit breadcrumbs when site.url is missing', () => {
+      setup(
+        {},
+        { id: 'about', path: '/about' },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      expect(findBreadcrumb(readHead())).toBeUndefined();
+    });
+
+    it('respects per-page meta.breadcrumbs:false opt-out', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'about', path: '/about', meta: { breadcrumbs: false } },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      expect(findBreadcrumb(readHead())).toBeUndefined();
+    });
+
+    it('appends breadcrumb AFTER author-supplied jsonld blocks', () => {
+      setup(
+        { url: 'https://example.com', jsonld: { '@type': 'WebSite' } },
+        {
+          id: 'about',
+          path: '/about',
+          jsonld: { '@type': 'AboutPage' },
+        },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const types = head.script.map((s) => JSON.parse(s.innerHTML)['@type']);
+      expect(types).toEqual(['WebSite', 'AboutPage', 'BreadcrumbList']);
     });
   });
 
