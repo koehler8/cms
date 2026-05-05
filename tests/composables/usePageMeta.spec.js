@@ -285,4 +285,167 @@ describe('usePageMeta', () => {
       expect(hreflangs).toEqual([]);
     });
   });
+
+  describe('Open Graph + Twitter Card meta', () => {
+    it('emits og:title + twitter:title + og:description + twitter:description for non-draft pages', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'about', path: '/about' },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      expect(head.meta.find((m) => m.property === 'og:title')).toBeDefined();
+      expect(head.meta.find((m) => m.property === 'og:description')).toBeDefined();
+      expect(head.meta.find((m) => m.name === 'twitter:title')).toBeDefined();
+      expect(head.meta.find((m) => m.name === 'twitter:description')).toBeDefined();
+      expect(head.meta.find((m) => m.name === 'twitter:card').content).toBe('summary_large_image');
+    });
+
+    it('emits og:url matching the canonical URL', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'about', path: '/about' },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const ogUrl = head.meta.find((m) => m.property === 'og:url');
+      expect(ogUrl.content).toBe('https://example.com/about');
+    });
+
+    it('emits og:site_name from site title', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'home', path: '/' },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const ogSite = head.meta.find((m) => m.property === 'og:site_name');
+      expect(ogSite.content).toBe('My Site');
+    });
+
+    it('falls back to /og-image.jpg absolutized via siteUrl', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'home', path: '/' },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const ogImage = head.meta.find((m) => m.property === 'og:image');
+      expect(ogImage.content).toBe('https://example.com/og-image.jpg');
+    });
+
+    it('uses page.meta.image when set (highest priority)', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'about', path: '/about', meta: { image: '/img/about-card.jpg' } },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const ogImage = head.meta.find((m) => m.property === 'og:image');
+      expect(ogImage.content).toBe('https://example.com/img/about-card.jpg');
+    });
+
+    it('does NOT emit OG/Twitter meta for draft pages', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'wip', path: '/wip', draft: true },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      expect(head.meta.find((m) => m.property === 'og:title')).toBeUndefined();
+      expect(head.meta.find((m) => m.name === 'twitter:title')).toBeUndefined();
+      expect(head.meta.find((m) => m.property === 'og:url')).toBeUndefined();
+    });
+
+    it('respects per-page ogType (e.g. article)', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: 'post', path: '/blog/post-1', meta: { ogType: 'article' } },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const ogType = head.meta.find((m) => m.property === 'og:type');
+      expect(ogType.content).toBe('article');
+    });
+  });
+
+  describe('404 / NotFound handling', () => {
+    it('emits "Page not found — {site}" title for not-found pages', () => {
+      const { pageMetaTitle } = setup(
+        {},
+        { id: '__not_found__', path: '/missing', isNotFound: true },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      expect(pageMetaTitle.value).toBe('Page not found — My Site');
+    });
+
+    it('falls back to "Page not found" alone when site has no title', () => {
+      const { pageMetaTitle } = setup(
+        { title: '' },
+        { id: '__not_found__', path: '/missing', isNotFound: true },
+      );
+      expect(pageMetaTitle.value).toBe('Page not found');
+    });
+
+    it('suppresses meta description on 404 pages', () => {
+      const { pageMetaDescription } = setup(
+        {},
+        { id: '__not_found__', path: '/missing', isNotFound: true },
+      );
+      expect(pageMetaDescription.value).toBe('');
+    });
+
+    it('emits noindex on 404 pages', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: '__not_found__', path: '/missing', isNotFound: true },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const robots = head.meta.find((m) => m.name === 'robots');
+      expect(robots).toBeDefined();
+      expect(robots.content).toBe('noindex, nofollow');
+    });
+
+    it('does NOT emit canonical for 404 pages', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: '__not_found__', path: '/missing', isNotFound: true },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const canonical = head.link.find((l) => l.rel === 'canonical');
+      expect(canonical).toBeUndefined();
+    });
+
+    it('does NOT emit hreflang for 404 pages even on multi-locale sites', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: '__not_found__', path: '/missing', isNotFound: true },
+        { availableLocales: ['en', 'de'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const hreflangs = head.link.filter((l) => l.rel === 'alternate');
+      expect(hreflangs).toEqual([]);
+    });
+
+    it('does NOT emit OG/Twitter meta for 404 pages', () => {
+      setup(
+        { url: 'https://example.com' },
+        { id: '__not_found__', path: '/missing', isNotFound: true },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      expect(head.meta.find((m) => m.property === 'og:title')).toBeUndefined();
+      expect(head.meta.find((m) => m.name === 'twitter:title')).toBeUndefined();
+    });
+
+    it('exposes isNotFound computed', () => {
+      const { isNotFound } = setup(
+        {},
+        { id: '__not_found__', path: '/missing', isNotFound: true },
+      );
+      expect(isNotFound.value).toBe(true);
+    });
+  });
 });

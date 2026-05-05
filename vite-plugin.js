@@ -538,8 +538,30 @@ export default function cmsPlugin(options = {}) {
         },
         ssgOptions: {
           dirStyle: 'nested',
+          // After vite-ssg pre-renders every route, copy the rendered
+          // dist/404/index.html to dist/404.html. AWS Amplify (and most
+          // static hosts) auto-serve a top-level 404.html for any
+          // unmatched URL with HTTP status 404, so this gives sites a
+          // proper not-found response without per-site config.
+          onFinished() {
+            const distDir = path.join(siteRoot, 'dist');
+            const nestedNotFound = path.join(distDir, '404', 'index.html');
+            const flatNotFound = path.join(distDir, '404.html');
+            if (fs.existsSync(nestedNotFound)) {
+              try {
+                fs.copyFileSync(nestedNotFound, flatNotFound);
+              } catch (err) {
+                console.warn(`[@koehler8/cms] failed to write 404.html: ${err.message}`);
+              }
+            }
+          },
           includedRoutes(paths) {
-            const staticRoutes = new Set(['/admin']);
+            // /admin is a vestigial placeholder; /404 is the not-found
+            // landing page (rendered via the catch-all + NotFound
+            // component). onFinished above copies dist/404/index.html
+            // to dist/404.html so AWS Amplify serves it for unmatched
+            // URLs with HTTP 404.
+            const staticRoutes = new Set(['/admin', '/404']);
             pagePaths.forEach((routePath) => staticRoutes.add(routePath));
 
             // Pre-render every page under each non-base locale prefix that

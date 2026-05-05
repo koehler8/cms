@@ -2,6 +2,7 @@ import { computed } from 'vue';
 import { useHead } from '@unhead/vue';
 import { isPathDraft } from '../utils/draftMode.js';
 import { buildCanonicalUrl } from '../utils/canonicalUrl.js';
+import { buildSocialMeta } from '../utils/socialMeta.js';
 import { availableLocales as configAvailableLocales, baseLocale as configBaseLocale } from '../utils/loadConfig.js';
 
 const SPECIAL_PAGE_LABELS = {
@@ -51,10 +52,16 @@ export function usePageMeta({ siteData, currentPage, locale }) {
   const isDraft = computed(() =>
     isPathDraft(siteData.value, currentPage.value?.path, currentPage.value),
   );
+  const isNotFound = computed(() => Boolean(currentPage.value?.isNotFound));
 
   const pageMetaTitle = computed(() => {
     const page = currentPage.value;
     const site = siteTitle.value;
+    // 404 pages: generic "Page not found — Site". The page slug (which is
+    // some URL the visitor typed) shouldn't leak into <title>.
+    if (isNotFound.value) {
+      return site ? `Page not found — ${site}` : 'Page not found';
+    }
     // Draft pages emit a generic title so the page slug doesn't leak via
     // <title> in the SSG-rendered HTML on disk. The tab title remains
     // generic even after client-side unlock — for "iterate before launch"
@@ -74,7 +81,7 @@ export function usePageMeta({ siteData, currentPage, locale }) {
   });
 
   const pageMetaDescription = computed(() => {
-    if (isDraft.value) {
+    if (isDraft.value || isNotFound.value) {
       return '';
     }
     const explicitDescription = currentPage.value?.meta?.description;
@@ -85,11 +92,11 @@ export function usePageMeta({ siteData, currentPage, locale }) {
   });
 
   // Canonical URL — base-locale URLs have no prefix; non-base locales get
-  // /{locale}/path. Drafts skip canonical (gated content shouldn't advertise
-  // an authoritative URL). Sites without a configured site.url skip too —
-  // we can't build an absolute URL.
+  // /{locale}/path. Drafts and 404s skip canonical (the URL itself isn't
+  // authoritative for gated/missing content). Sites without a configured
+  // site.url skip too — we can't build an absolute URL.
   const canonicalHref = computed(() => {
-    if (isDraft.value) return '';
+    if (isDraft.value || isNotFound.value) return '';
     if (!siteUrl.value) return '';
     return buildCanonicalUrl({
       siteUrl: siteUrl.value,
@@ -104,7 +111,7 @@ export function usePageMeta({ siteData, currentPage, locale }) {
   // an `x-default` pointing at the base-locale URL (Google's preferred
   // pattern for sites without explicit geo-targeting).
   const hreflangLinks = computed(() => {
-    if (isDraft.value) return [];
+    if (isDraft.value || isNotFound.value) return [];
     if (!siteUrl.value) return [];
     if (!Array.isArray(configAvailableLocales) || configAvailableLocales.length <= 1) return [];
     const path = currentPage.value?.path || '/';
@@ -138,9 +145,23 @@ export function usePageMeta({ siteData, currentPage, locale }) {
     if (description) {
       meta.push({ name: 'description', content: description, key: 'description' });
     }
-    if (isDraft.value) {
+    // 404 pages get noindex defensively — Amplify (or whichever host)
+    // already serves them with HTTP 404, but search engines occasionally
+    // crawl 404 URLs and the meta is a stronger signal than relying on
+    // the status header alone.
+    if (isDraft.value || isNotFound.value) {
       meta.push({ name: 'robots', content: 'noindex, nofollow', key: 'robots' });
     }
+    const social = buildSocialMeta({
+      siteData: siteData.value,
+      currentPage: currentPage.value,
+      pageTitle: pageMetaTitle.value,
+      pageDescription: pageMetaDescription.value,
+      canonicalHref: canonicalHref.value,
+      isDraft: isDraft.value,
+      isNotFound: isNotFound.value,
+    });
+    for (const entry of social) meta.push(entry);
     const link = [];
     if (canonicalHref.value) {
       link.push({ rel: 'canonical', href: canonicalHref.value, key: 'canonical' });
@@ -155,5 +176,5 @@ export function usePageMeta({ siteData, currentPage, locale }) {
     };
   });
 
-  return { pageMetaTitle, pageMetaDescription, isDraft, canonicalHref, hreflangLinks };
+  return { pageMetaTitle, pageMetaDescription, isDraft, isNotFound, canonicalHref, hreflangLinks };
 }

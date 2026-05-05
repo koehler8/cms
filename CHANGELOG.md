@@ -1,5 +1,111 @@
 # Changelog
 
+## 1.0.0-beta.20
+
+### Per-page Open Graph + Twitter Card meta and a real 404 page
+
+Two SEO/UX gaps closed in one release:
+
+1. **Per-page link previews**: every page now emits its own `og:title`,
+   `og:description`, `og:url`, `og:image`, `og:type`, `og:site_name`,
+   plus the matching `twitter:*` tags. Sharing `/about` to iMessage,
+   Slack, X, etc. now shows the page-specific card instead of the
+   site-wide one. Sites/pages can override the image and og:type per
+   page via `meta.image` / `meta.ogType` / `meta.twitterCard`.
+2. **Real 404 page**: unknown URLs render a bundled `NotFound`
+   component with HTTP 404 (via Amplify's auto-served `dist/404.html`)
+   instead of silently rendering the home page with HTTP 200.
+
+**Schema additions** (all optional):
+
+- `pages/{id}.json`
+  - `meta.image` — per-page OG/Twitter image (relative path or absolute
+    URL). Falls back to `site.image` then to the static `/og-image.jpg`.
+  - `meta.ogType` — overrides default `"website"` (e.g. `"article"`).
+  - `meta.twitterCard` — overrides default `"summary_large_image"`.
+- `site.json`
+  - `image` (or `ogImage`) — site-wide OG image fallback when a page
+    doesn't set its own.
+- `pages/404.json` (optional) — a custom 404 page. If present,
+  `selectPage` resolves to it on no-match. Its `components[]` can list
+  Header/Footer/etc. for full chrome. If absent, a synthesized sentinel
+  renders just the bundled `NotFound` component (no chrome).
+- `shared.json` / `pages/404.json` `content.notFound`
+  - `heading` — defaults to "Page not found"
+  - `body` — defaults to "We couldn't find the page you're looking for."
+  - `homeLabel` — defaults to "Return home"
+  - `homeHref` — defaults to "/"
+
+**Behavior:**
+
+- `usePageMeta` now produces `<title>`, `<meta name="description">`,
+  `<meta property="og:*">`, `<meta name="twitter:*">`, `<link
+  rel="canonical">`, and `<link rel="alternate" hreflang>` per page.
+  The static `templates/index.html` no longer hardcodes any of those
+  (was previously: `<title>` + meta description + 9 OG/Twitter tags
+  rendered with site-wide constants on every page). The site-wide JSON-LD
+  Organization snippet stays in the template — that's per-page invariant.
+- 404 pages get `<title>Page not found — {Site}</title>`, empty
+  description, `<meta name="robots" content="noindex, nofollow">`, no
+  canonical, no hreflang, no OG/Twitter (the URL the visitor typed
+  shouldn't generate a misleading link card if shared).
+- The vite-plugin pre-renders `/404` (via `staticRoutes`) and copies
+  `dist/404/index.html` → `dist/404.html` after rendering, in
+  `ssgOptions.onFinished`. AWS Amplify auto-serves the top-level
+  `404.html` for unmatched URLs with HTTP 404 status — no per-site
+  config needed.
+- `usePageConfig.selectPage` returns a not-found sentinel
+  (`{ id: '__not_found__', isNotFound: true, components: [{ name:
+  'NotFound' }] }`) when the requested path doesn't match any page and
+  isn't `/`. Sites can override by authoring `pages/404.json`. The
+  previous behavior — "fall through to home content with HTTP 200" — is
+  gone. **This is a breaking change in observable behavior**:
+  previously, hitting `/this-doesnt-exist` rendered the home page; now
+  it renders a 404. Any site that depended on the old behavior should
+  audit (rare; the old behavior was almost always wrong for SEO).
+
+**New files:**
+
+- `src/utils/socialMeta.js` — `buildSocialMeta(...)` returns the
+  per-page OG/Twitter meta entries. Pure; tested in isolation.
+- `src/components/NotFound.vue` — bundled fallback rendered for the
+  `__not_found__` sentinel. Theme-token styled, WCAG 2.2 AA (real
+  heading hierarchy, focus-visible, prefers-reduced-motion, ≥24×24 hit
+  area on the home link).
+- `tests/utils/socialMeta.spec.js` — 19 cases covering the meta-tag
+  emission paths.
+
+**Edits:**
+
+- `src/composables/usePageMeta.js` — extended with OG/Twitter emission
+  via `buildSocialMeta` and `isNotFound` handling. Drafts already
+  skipped canonical/hreflang; now they (and 404s) also skip OG/Twitter.
+- `src/composables/usePageConfig.js` — `selectPage` returns a
+  `__not_found__` sentinel for any non-root path that doesn't match a
+  page. Sites can author `pages/404.json` to customize.
+- `vite-plugin.js` — adds `/404` to `includedRoutes`; new
+  `ssgOptions.onFinished` callback copies `dist/404/index.html` →
+  `dist/404.html` after pages are rendered.
+- `templates/index.html` — removes the EJS-rendered `<title>`,
+  `<meta description>`, og:*, and twitter:* lines. Adds an inline
+  comment noting that those are now per-page emissions.
+- `tests/composables/usePageMeta.spec.js` — adds 8 OG/Twitter cases
+  + 7 NotFound cases.
+
+Tests: 471+ passing (19 new for socialMeta, 8 added to usePageMeta for
+OG/Twitter, 7 for 404 handling).
+
+**Caveats:**
+
+- **HTTP 404 status depends on the host.** The framework writes
+  `dist/404.html`; making it serve with a 404 status code is the host's
+  job. AWS Amplify does this automatically when `404.html` exists at
+  the root of the deployed site. Other hosts (Netlify, Cloudflare
+  Pages, S3) need their own configuration — document per host as needed.
+- **Sites that customize `templates/index.html`** (rare — there's no
+  documented way) lose the site-wide OG/Twitter site-wide fallback.
+  In practice no consumer site does this; the template is internal.
+
 ## 1.0.0-beta.19
 
 ### Canonical URLs — collapse the URL space to one per page

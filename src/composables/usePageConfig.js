@@ -75,6 +75,30 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
           };
         }
       }
+
+      // No page matches the requested path. If it's anything other than
+      // the home path "/" — or the explicit /404 SSG route — treat it as
+      // a not-found page (instead of silently returning home content with
+      // HTTP 200, which is what the framework used to do).
+      //
+      // Sites can override the rendered 404 by authoring pages/404.json
+      // with their own components[]; otherwise the synthesized sentinel
+      // renders the bundled NotFound component.
+      if (requestedPath !== '/') {
+        const customNotFound = resolveById('404');
+        if (customNotFound) {
+          return { ...customNotFound, isNotFound: true };
+        }
+        return {
+          id: '__not_found__',
+          path: requestedPath,
+          components: [{ name: 'NotFound', enabled: true }],
+          content: {},
+          meta: {},
+          draft: undefined,
+          isNotFound: true,
+        };
+      }
     }
 
     const homeFallback = resolveById('home');

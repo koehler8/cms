@@ -2,18 +2,14 @@
 <html lang="">
   <head>
     <meta charset="UTF-8">
-    <title><%= site %></title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="<%= siteDescription %>">
-    <meta property="og:title" content="<%= site %>">
-    <meta property="og:description" content="<%= siteDescription %>">
-    <meta property="og:url" content="<%= siteUrl %>">
-    <meta property="og:type" content="website">
-    <meta property="og:image" content="<%= ABSOLUTE_OG_IMAGE %>">
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="<%= site %>">
-    <meta name="twitter:description" content="<%= siteDescription %>">
-    <meta name="twitter:image" content="<%= ABSOLUTE_OG_IMAGE %>">
+    <!--
+      Per-page <title>, <meta name="description">, og:*, twitter:*, canonical,
+      and hreflang are emitted by usePageMeta at SSG render time. Site-wide
+      structured-data (the JSON-LD Organization snippet below) and the
+      static <link rel="icon"> remain in this template since they don't
+      vary per page.
+    -->
     <link rel="icon" href="/favicon.ico">
     <script type="application/ld+json">
     {
