@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.0.0-beta.25
+
+### Fix: switching back to base locale didn't actually switch
+
+beta.24 made the Header dropdown link the base locale to `/` instead of
+`/{baseLocale}`. The URL changed correctly, but the page rendered in the
+*previously selected* locale. Two interlocking causes:
+
+1. **`Header.handleLocaleLinkClick` didn't write `localStorage.locale`.**
+   `loadConfigData` falls back to `localStorage.getItem('locale')` when
+   no explicit locale param is present. Navigating to `/` (the base-
+   locale URL) provides no locale, so `loadConfigData` read the stale
+   `'de'` (or whatever the previous locale was) from localStorage and
+   loaded the wrong config tree. The router's `applyRouterGuards` only
+   wrote localStorage when a `:locale` route param matched — base-locale
+   navigation never matched, so the storage went unwritten.
+2. **Router auto-redirect bounced back to the prior locale.** The
+   guard's "if user lands on `/` and browser language is `de`, redirect
+   to `/de`" detection ran on every navigation, not just first-time
+   visits. Clicking "EN" on `/de` navigated to `/`, the guard saw the
+   browser was set to German, redirected back to `/de`, and the user
+   never saw English.
+
+**Fixes:**
+
+- `Header.handleLocaleLinkClick` now writes `localStorage.setItem('locale',
+  locale)` for every dropdown click, including the base locale. The
+  user's explicit choice persists across navigation.
+- `applyRouterGuards`'s browser-language auto-detect early-returns when
+  any `localStorage.locale` value is already set. The auto-redirect runs
+  only on truly-fresh visits with no stored preference.
+
+Tests: 557 still passing.
+
 ## 1.0.0-beta.24
 
 ### Fix: Header locale dropdown sent base-locale clicks to a 404

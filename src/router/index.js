@@ -136,6 +136,19 @@ export function applyRouterGuards(router, localePrefixes = computeLocalePrefixes
     }
 
     if (!import.meta.env.SSR) {
+      // Browser-language auto-redirect on first visit only. If the user
+      // already has a stored locale preference (set by either an explicit
+      // dropdown click or a previous visit to a locale-prefixed URL),
+      // respect that — don't second-guess them with browser-language
+      // detection. This prevents the bug where clicking "EN" on /de
+      // navigates to / and the auto-detect bounces back to /de because
+      // the browser is set to German.
+      let storedPreference = '';
+      try {
+        storedPreference = (localStorage.getItem('locale') || '').toString().toLowerCase();
+      } catch {}
+      if (storedPreference) return;
+
       const navLang = (navigator.language || navigator.userLanguage || '').toString();
       const shortLang = normalizeLocale(navLang || '');
 

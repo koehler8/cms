@@ -414,6 +414,17 @@ const updateLocaleMenuPosition = () => {
       });
     }
     isLangOpen.value = false;
+    // Persist the user's explicit choice so it survives navigation to the
+    // unprefixed base-locale URL (`/`). The router guard only writes
+    // localStorage when a locale param is present in the URL — clicking
+    // the base locale navigates to `/` (no param), so the write must
+    // happen here instead. Also keeps loadConfigData's localStorage
+    // fallback in sync with the active selection.
+    if (!import.meta.env.SSR && typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('locale', locale);
+      } catch {}
+    }
   };
 
   onMounted(() => {
