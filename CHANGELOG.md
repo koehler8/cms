@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.0.0-beta.29
+
+### Fix: Hero background image silently lost during Vue's :style normalization
+
+`usePromoBackgroundStyles` was emitting a string with two `background-image`
+declarations — a `url()` fallback first, then an `image-set()` upgrade with
+format negotiation. The pattern is the standard CSS progressive-enhancement
+chain: browsers that can parse `image-set()` (with `type()` argument) use it;
+browsers that can't fall through to the `url()`. **But Vue 3's `:style`
+parses string bindings into a normalized object keyed by property name,
+collapsing duplicate `background-image` declarations to a single entry —
+only the last one (the `image-set()`) survives.** The fallback chain was
+silently truncated.
+
+Symptom: hero background images missing in any browser that can't fully
+parse `image-set()` with the `type()` argument. Browsers that can parse it
+saw the bg fine — but a partial-parse failure (rare but possible across
+older Safari, some embedded WebViews) left the section bg-less, falling
+through to the surface color.
+
+**Fix:** the composable now returns an OBJECT with two CSS custom
+properties (`--promo-bg-fallback` and `--promo-bg-set`) instead of a string.
+Vue keeps both as distinct entries. `Hero.vue`'s `.promo-surface` rule
+declares `background-image` twice — once with each var — so browsers walk
+the natural CSS cascade. The first declaration always parses; the second
+overrides only when the browser supports `image-set()`.
+
+Tests: 588 passing (8 in `usePromoBackgroundStyles.spec.js` rewritten for
+the new object contract).
+
+No site-side migration needed — bump cms and rebuild.
+
 ## 1.0.0-beta.28
 
 ### Fix: pipeline no longer generates content-duplicate variants for small sources

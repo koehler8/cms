@@ -273,10 +273,19 @@ function getHeaderOffset() {
 .promo-surface {
   position: relative;
   min-height: var(--promo-surface-min-height, calc(100vh + 75px));
-  background: var(
+  background-color: var(
     --promo-surface-bg,
     var(--hero-surface-bg, var(--theme-body-background, #060212))
   );
+  /* Two background-image declarations form a CSS-cascade fallback chain.
+     The first sets a basic url(); the second, if the browser parses
+     image-set() (and the type() argument), overrides with format
+     negotiation. Browsers that can't parse image-set fall back to the
+     url() above. Custom properties are populated by usePromoBackgroundStyles
+     via Vue's :style object binding — see that composable for why this
+     pattern is needed instead of a single background-image string. */
+  background-image: var(--promo-bg-fallback);
+  background-image: var(--promo-bg-set, var(--promo-bg-fallback));
   background-repeat: no-repeat;
   background-size: cover;
   background-position: center;
