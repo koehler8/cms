@@ -64,10 +64,18 @@ export async function reconcileVariantCache({
       continue;
     }
 
+    // Source is "cached" if the manifest knows it, mtime hasn't changed,
+    // config hasn't changed, AND every variant the previous run wrote is
+    // still on disk. We check `previous.variants` (what was actually
+    // generated) rather than `job.outputs` (everything the planner asked
+    // for) so tiny-source sites — where the renderer skipped over-large
+    // widths to avoid Vite content-dedup — aren't perpetually re-rendered
+    // on each build.
+    const previousVariants = previous?.variants || [];
     const allCached = !configChanged
       && previous
       && previous.mtimeMs >= sourceMtime
-      && job.outputs.every((o) => fs.existsSync(path.join(cacheDir, o.cacheRelPath)));
+      && previousVariants.every((v) => fs.existsSync(path.join(cacheDir, v)));
 
     if (allCached) {
       plannedRenders.push({ job, sourceMtime, render: false });
@@ -87,12 +95,43 @@ export async function reconcileVariantCache({
     sharp = mod.default;
   }
 
+  // Per-source: filter outputs to widths the source can actually fulfill.
+  // Sharp's `withoutEnlargement: true` clamps oversize requests to the
+  // source dimensions, producing content-identical files for every width
+  // greater than the source. Vite content-hashes those files identically
+  // and emits ONE physical asset under one of the names — but assetUrlMap
+  // still has URL keys for every width, so requests for the deduped
+  // higher-width URLs 404.
+  //
+  // Fix: only generate variants for widths < source.width. Plus, always
+  // generate at exactly source.width (for crisp 1× display) by remapping
+  // any single oversize width down to source.width if no smaller variant
+  // would otherwise exist. The pipeline's natural fallback to the bare
+  // `img/{name}.{ext}` URL (which exists because the original is in the
+  // flat dir) covers tiny sources where no variant width fits.
+  const filteredOutputsByJob = new Map();
+  for (const { job } of plannedRenders) {
+    let sourceWidth = Number.MAX_SAFE_INTEGER;
+    if (sharp) {
+      try {
+        const meta = await sharp(job.sourcePath).metadata();
+        if (meta && Number.isFinite(meta.width)) sourceWidth = meta.width;
+      } catch {
+        // If metadata read fails, fall through and render everything —
+        // the failure is benign (just the dedup risk we're trying to avoid).
+      }
+    }
+    const kept = job.outputs.filter((o) => o.width <= sourceWidth);
+    filteredOutputsByJob.set(job.sourceKey, kept);
+  }
+
   for (const { job, sourceMtime, render } of plannedRenders) {
     if (!render) {
-      skipped += job.outputs.length;
+      skipped += (filteredOutputsByJob.get(job.sourceKey) || job.outputs).length;
       continue;
     }
-    for (const output of job.outputs) {
+    const outputs = filteredOutputsByJob.get(job.sourceKey) || job.outputs;
+    for (const output of outputs) {
       const outPath = path.join(cacheDir, output.cacheRelPath);
       try {
         await renderOutput(sharp, job.sourcePath, { ...output, outPath }, currentConfig);
@@ -104,15 +143,32 @@ export async function reconcileVariantCache({
     void sourceMtime;
   }
 
+  // Evict any cached variants that the source can no longer fulfill
+  // (e.g. someone replaced a 4000px source with a 200px one — the
+  // 1280/1920/2560 outputs from the previous run are now stale).
+  for (const { job, render } of plannedRenders) {
+    if (!render) continue;
+    const kept = new Set((filteredOutputsByJob.get(job.sourceKey) || job.outputs).map((o) => o.cacheRelPath));
+    for (const o of job.outputs) {
+      if (kept.has(o.cacheRelPath)) continue;
+      const stalePath = path.join(cacheDir, o.cacheRelPath);
+      if (fs.existsSync(stalePath)) {
+        await fs.promises.rm(stalePath, { force: true });
+        evicted += 1;
+      }
+    }
+  }
+
   const newManifest = {
     version: MANIFEST_VERSION,
     config: currentConfig,
     sources: {},
   };
   for (const { job, sourceMtime } of plannedRenders) {
+    const outputs = filteredOutputsByJob.get(job.sourceKey) || job.outputs;
     newManifest.sources[job.sourceKey] = {
       mtimeMs: sourceMtime,
-      variants: job.outputs.map((o) => o.cacheRelPath),
+      variants: outputs.map((o) => o.cacheRelPath),
     };
   }
   writeManifest(manifestPath, newManifest);

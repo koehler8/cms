@@ -127,10 +127,13 @@ describe('reconcileVariantCache', () => {
   });
 
   it('evicts variants for sources removed since last run', async () => {
+    // Both sources sized large enough that all configured widths (320, 640)
+    // fit — so each generates its full variant matrix and the eviction
+    // path is observable.
     ctx = await makeRun({
       sourceImages: {
         'hero.jpg': { width: 1600, height: 900 },
-        'logo.png': { width: 200, height: 200, ext: 'png' },
+        'logo.png': { width: 800, height: 800, ext: 'png' },
       },
     });
     await reconcileVariantCache({
@@ -174,20 +177,66 @@ describe('reconcileVariantCache', () => {
     expect(result.generated).toBe(6);
   });
 
-  it('clamps to source size for tiny images (no enlargement)', async () => {
+  it('skips variant widths larger than the source (avoids Vite content-dedup bug)', async () => {
+    // 200×200 source with widths [320, 640] — both exceed source. Pipeline
+    // must skip both to avoid emitting content-identical files that Vite
+    // would deduplicate, leaving high-width URL keys pointing at non-existent
+    // files. The bare flat-dir original (logo.png) covers the fallback case.
     ctx = await makeRun({ sourceImages: { 'logo.png': { width: 200, height: 200, ext: 'png' } } });
-    await reconcileVariantCache({
+    const result = await reconcileVariantCache({
       jobs: plan(ctx.fixture),
       cacheDir: ctx.cacheDir,
       manifestPath: ctx.manifestPath,
       currentConfig: CONFIG,
       log: noop,
     });
-    const out320 = path.join(ctx.cacheDir, 'assets/img/logo-320.webp');
-    const out640 = path.join(ctx.cacheDir, 'assets/img/logo-640.webp');
-    const meta320 = await sharp(out320).metadata();
-    const meta640 = await sharp(out640).metadata();
-    expect(meta320.width).toBe(200);
-    expect(meta640.width).toBe(200);
+    expect(result.generated).toBe(0);
+    expect(fs.existsSync(path.join(ctx.cacheDir, 'assets/img/logo-320.webp'))).toBe(false);
+    expect(fs.existsSync(path.join(ctx.cacheDir, 'assets/img/logo-640.webp'))).toBe(false);
+  });
+
+  it('generates only widths the source can actually fulfill', async () => {
+    // Source is 800px wide with widths [320, 640, 960, 1280, 1920, 2560].
+    // 320, 640 are below source → generated. 960, 1280, 1920, 2560 all
+    // exceed source → skipped to prevent dedup.
+    const config = {
+      widths: [320, 640, 960, 1280, 1920, 2560],
+      formats: ['webp'],
+      quality: { webp: 75 },
+    };
+    ctx = await makeRun({ sourceImages: { 'hero.jpg': { width: 800, height: 600 } } });
+    const jobs = planVariantJobsFromFlatDir({ siteImgDir: ctx.fixture.imgDir, config });
+    await reconcileVariantCache({
+      jobs,
+      cacheDir: ctx.cacheDir,
+      manifestPath: ctx.manifestPath,
+      currentConfig: config,
+      log: noop,
+    });
+    expect(fs.existsSync(path.join(ctx.cacheDir, 'assets/img/hero-320.webp'))).toBe(true);
+    expect(fs.existsSync(path.join(ctx.cacheDir, 'assets/img/hero-640.webp'))).toBe(true);
+    expect(fs.existsSync(path.join(ctx.cacheDir, 'assets/img/hero-960.webp'))).toBe(false);
+    expect(fs.existsSync(path.join(ctx.cacheDir, 'assets/img/hero-1280.webp'))).toBe(false);
+    expect(fs.existsSync(path.join(ctx.cacheDir, 'assets/img/hero-1920.webp'))).toBe(false);
+    expect(fs.existsSync(path.join(ctx.cacheDir, 'assets/img/hero-2560.webp'))).toBe(false);
+  });
+
+  it('does not re-render on second run when source is too small for any variant', async () => {
+    // The "tiny source" case used to thrash: planner says 6 outputs, none
+    // get rendered, then the next run sees outputs missing on disk and
+    // tries to render again. The cache check uses manifest variants list
+    // (what was actually written) rather than the planner's outputs.
+    ctx = await makeRun({ sourceImages: { 'logo.png': { width: 100, height: 100, ext: 'png' } } });
+    const args = {
+      jobs: plan(ctx.fixture),
+      cacheDir: ctx.cacheDir,
+      manifestPath: ctx.manifestPath,
+      currentConfig: CONFIG,
+      log: noop,
+    };
+    const r1 = await reconcileVariantCache(args);
+    expect(r1.generated).toBe(0);
+    const r2 = await reconcileVariantCache({ ...args, jobs: plan(ctx.fixture) });
+    expect(r2.generated).toBe(0);
   });
 });

@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.0.0-beta.28
+
+### Fix: pipeline no longer generates content-duplicate variants for small sources
+
+beta.27's in-plugin pipeline still asked sharp to generate every
+configured width per source, relying on `withoutEnlargement: true` to
+clamp oversize requests. The clamping worked, but produced
+**content-identical files** for every width above the source's actual
+width: a 1920×1080 source asked for at widths [1920, 2560] generated
+two byte-identical files. Vite content-hashes assets and emits ONE
+physical file under one of the names — but the asset URL map still
+registers entries for every width's import path. Result: requests for
+`/assets/promo-2560-{hash}.jpg` 404 because Vite emitted that content
+under `/assets/promo-1920-{hash}.jpg` instead.
+
+Symptoms: hero background images missing on sites whose source promo
+image is smaller than the largest configured width. We hit it on most
+of the migrated sites once they bumped to beta.27 — the placeholder
+promo.jpg files were 72×72.
+
+**Fix:** the reconcile orchestrator reads each source's dimensions
+before rendering and skips outputs whose requested width exceeds
+source.width. The pipeline naturally falls back to the bare
+`img/{name}.{ext}` URL (which exists because the original lives in the
+flat dir) for sources too small to generate any variant. Stale
+oversize variants from a previous run get evicted from the cache.
+
+Also: the cache-up-to-date check now compares against the manifest's
+recorded `variants` list rather than the planner's full output set.
+This prevents tiny-source sites from re-rendering on every build (the
+old check thought a missing variant meant we needed to retry).
+
+Tests: 586 passing (3 added: skip-oversize-widths, only-fulfillable-widths,
+no-thrash-on-tiny-source).
+
+No site-side migration needed — bump cms and rebuild.
+
 ## 1.0.0-beta.27
 
 ### Image-variant pipeline moves into the Vite plugin (BREAKING for sites)
