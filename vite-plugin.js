@@ -17,6 +17,12 @@ import { buildRobotsTxt } from './src/utils/robotsGenerator.js';
 import { buildSitemap, getSitemapUrl } from './src/utils/sitemapGenerator.js';
 import { buildWebAppManifest } from './src/utils/webAppManifest.js';
 import { sha256Hex } from './src/utils/sha256.js';
+import {
+  computeVariantCacheDir,
+  resolveImageVariantConfig,
+  planVariantJobsFromFlatDir,
+  reconcileVariantCache,
+} from './scripts/image-variants/index.js';
 
 // ---- Helpers ----
 
@@ -349,6 +355,8 @@ export default function cmsPlugin(options = {}) {
   let metadata;
   let tempIndexPath;
   let tempEntryPath;
+  let variantCacheDir;
+  let variantManifestPath;
 
   const writeTempFiles = () => {
     // Write entry file (with optional external theme registrations)
@@ -453,6 +461,8 @@ export default function cmsPlugin(options = {}) {
       siteRoot = path.dirname(siteDir);
       tempIndexPath = path.join(siteRoot, 'index.html');
       tempEntryPath = path.join(siteRoot, ENTRY_FILENAME);
+      variantCacheDir = computeVariantCacheDir(siteRoot, siteDir);
+      variantManifestPath = path.join(variantCacheDir, '.manifest.json');
 
       // Load site config at config-resolution time (needed for SSG routes + HTML injection)
       const contentDir = path.join(siteDir, 'content');
@@ -498,6 +508,7 @@ export default function cmsPlugin(options = {}) {
           alias: {
             '@cms-site': siteDir,
             '@cms-framework': frameworkRoot,
+            '@cms-variant-cache': variantCacheDir,
             '@': path.join(frameworkRoot, 'src'),
             '@extensions': extensionsDir,
           },
@@ -722,6 +733,18 @@ export default modules;
       }
 
       if (virtualId === VIRTUAL_ASSETS) {
+        // Three globs:
+        //   shared    — framework-bundled assets
+        //   site      — site/assets/** flat-dir originals (everything the
+        //               author put on disk, including any leftover variants
+        //               from the old pipeline that haven't been cleaned up)
+        //   variants  — generated variants from node_modules/.cache/
+        //               @koehler8/cms/image-variants/{siteKey}/assets/**.
+        //               The cache mirrors the site's `assets/` layout so
+        //               normalizeAssetKey strips the same `assets/` prefix
+        //               and surfaces variants under canonical `img/...` keys.
+        // Spread order: variants first so site flat-dir wins on collision —
+        // a hand-placed file in site/assets/img/ overrides the cached variant.
         return `
 import { createAssetResolver } from '@koehler8/cms/utils/assetResolver';
 const shared = import.meta.glob('@cms-framework/src/assets/**/*', {
@@ -729,15 +752,17 @@ const shared = import.meta.glob('@cms-framework/src/assets/**/*', {
   query: '?url',
   import: 'default',
 });
-const site = import.meta.glob([
-  '@cms-site/assets/**/*',
-  '!@cms-site/assets/_source/**',
-], {
+const site = import.meta.glob('@cms-site/assets/**/*', {
   eager: true,
   query: '?url',
   import: 'default',
 });
-const resolver = createAssetResolver(shared, site);
+const variants = import.meta.glob('@cms-variant-cache/assets/**/*', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+});
+const resolver = createAssetResolver(shared, { ...variants, ...site });
 export const resolveAssetUrl = resolver.resolveAssetUrl;
 export const resolveAsset = resolver.resolveAsset;
 export const resolveMedia = resolver.resolveMedia;
@@ -763,6 +788,50 @@ export const assetUrlMap = resolver.assetUrlMap;
       const transformed = await transformSiteJson(code);
       if (transformed == null) return null;
       return { code: transformed, map: null };
+    },
+
+    async buildStart() {
+      // Generate image variants into the cache dir BEFORE the VIRTUAL_ASSETS
+      // load() block runs its import.meta.glob — that glob picks up the cache
+      // files and surfaces them as Vite-pipelined assets (hashed, emitted to
+      // dist/assets/) at build, or served straight from disk during dev.
+      //
+      // Errors here are warned, not thrown — a broken variant pipeline should
+      // not kill the entire build. Sites without source images (no img dir,
+      // empty img dir) are no-ops.
+      const siteImgDir = path.join(siteDir, 'assets', 'img');
+
+      // Strict deprecation: warn loudly if the legacy _source/ dir exists.
+      // Pipeline only reads the flat dir — sites that haven't migrated will
+      // see broken image URLs until they run `npx @koehler8/cms migrate-image-variants`.
+      const legacySourceDir = path.join(siteImgDir, '_source');
+      if (fs.existsSync(legacySourceDir)) {
+        this.warn(
+          `[@koehler8/cms] Found legacy site/assets/img/_source/ directory.`
+          + ` As of beta.27 image originals live directly in site/assets/img/`
+          + ` and variants generate at build time into node_modules/.cache/.`
+          + ` Run \`npx @koehler8/cms migrate-image-variants\` from the site`
+          + ` directory to migrate. The pipeline is NOT reading from _source/`
+          + ` — image URLs will 404 until you migrate.`,
+        );
+      }
+
+      try {
+        const variantConfig = resolveImageVariantConfig(siteConfig);
+        const jobs = planVariantJobsFromFlatDir({
+          siteImgDir,
+          config: variantConfig,
+        });
+        await reconcileVariantCache({
+          jobs,
+          cacheDir: variantCacheDir,
+          manifestPath: variantManifestPath,
+          currentConfig: variantConfig,
+          log: (msg) => this.warn(`[@koehler8/cms image-variants] ${msg}`),
+        });
+      } catch (err) {
+        this.warn(`[@koehler8/cms image-variants] generation failed: ${err.message}`);
+      }
     },
 
     configResolved(resolvedConfig) {
@@ -831,8 +900,55 @@ export const assetUrlMap = resolver.assetUrlMap;
       // Watch site content for HMR
       server.watcher.add(siteDir);
 
+      // Image-variant regen on source-image change. Debounced so bulk
+      // drag-and-drop adds don't trigger N pipeline runs. Writes to the
+      // cache dir don't re-trigger because we early-return on those events.
+      const siteImgDir = path.join(siteDir, 'assets', 'img');
+      let pendingVariantRegen = null;
+      const scheduleVariantRegen = () => {
+        if (pendingVariantRegen) clearTimeout(pendingVariantRegen);
+        pendingVariantRegen = setTimeout(async () => {
+          pendingVariantRegen = null;
+          try {
+            const variantConfig = resolveImageVariantConfig(siteConfig);
+            const jobs = planVariantJobsFromFlatDir({
+              siteImgDir,
+              config: variantConfig,
+            });
+            await reconcileVariantCache({
+              jobs,
+              cacheDir: variantCacheDir,
+              manifestPath: variantManifestPath,
+              currentConfig: variantConfig,
+              log: (msg) => console.log(`[@koehler8/cms image-variants] ${msg}`),
+            });
+            // Invalidate the asset-resolver virtual module so its
+            // import.meta.glob re-evaluates and the new variant URLs land
+            // in the asset map. The full-reload below picks them up.
+            const assetMod = server.moduleGraph.getModuleById(resolved(VIRTUAL_ASSETS));
+            if (assetMod) server.moduleGraph.invalidateModule(assetMod);
+            server.ws.send({ type: 'full-reload' });
+          } catch (err) {
+            console.warn(`[@koehler8/cms image-variants] regen failed: ${err.message}`);
+          }
+        }, 250);
+      };
+      const handleImageEvent = (file) => {
+        if (typeof file !== 'string') return;
+        // Ignore writes our own pipeline made into the cache dir.
+        if (variantCacheDir && file.startsWith(variantCacheDir)) return;
+        if (!file.startsWith(siteImgDir)) return;
+        scheduleVariantRegen();
+      };
+      server.watcher.on('add', handleImageEvent);
+      server.watcher.on('change', handleImageEvent);
+      server.watcher.on('unlink', handleImageEvent);
+
       // Invalidate virtual modules when site content changes
       const invalidate = (file) => {
+        // Don't double-handle image events — the dedicated handler above
+        // already invalidates VIRTUAL_ASSETS and triggers full-reload.
+        if (variantCacheDir && file.startsWith(variantCacheDir)) return;
         if (!file.startsWith(siteDir)) return;
         for (const id of VIRTUAL_IDS) {
           const mod = server.moduleGraph.getModuleById(resolved(id));

@@ -1,5 +1,77 @@
 # Changelog
 
+## 1.0.0-beta.27
+
+### Image-variant pipeline moves into the Vite plugin (BREAKING for sites)
+
+The variant generation that was a separate `cms-generate-image-variants`
+build step is now part of the Vite plugin's lifecycle. Variants generate
+into `node_modules/.cache/@koehler8/cms/image-variants/{siteKey}/` at
+build/dev time, get picked up by a third `import.meta.glob` in the
+asset-resolver virtual module, and surface through Vite's normal asset
+pipeline (hashed, emitted to `dist/assets/`). Source trees no longer
+contain the `_source/` directory or any committed variant files.
+
+Why: beta.22 introduced `_source/` as a separation between authored
+originals and generated variants. beta.26 patched the resulting
+`resolveAsset('img/logo.png')` breakage by also auto-copying originals
+to the flat dir — leaving byte-identical duplicates and ~hundreds of
+committed variant files per site. beta.27 eliminates both: originals
+live in `site/assets/img/` directly (one canonical location), variants
+are pure build artifacts that never touch the source tree.
+
+**Breaking changes:**
+
+- **`cms-generate-image-variants` CLI is removed.** Sites with
+  `npm run generate:image-variants` in their `amplify.yml` or
+  `package.json` will fail at the bare-command lookup until they
+  remove those references.
+- **The `_source/` convention is deprecated.** The pipeline reads only
+  from flat `site/assets/img/`. Sites that still have files only in
+  `_source/` will see broken image URLs (the plugin emits a loud warning
+  with migration instructions on every build).
+
+**Migration: run `npx @koehler8/cms migrate-image-variants` from each
+site directory.** It promotes `_source/` files to flat dir, deletes the
+beta.26 auto-copy duplicates, untracks committed variants, drops the
+script entries from `package.json` and `amplify.yml`, bumps the cms
+range to `^1.0.0-beta.27`, and runs `npm install`. Idempotent — safe
+to re-run.
+
+**End state per site:**
+- Source tree: `site/assets/img/logo.png`, `site/assets/img/hero.jpg`. That's it.
+- No `_source/` directory.
+- No committed variant files.
+- No `generate:image-variants` script.
+- No preBuild step in `amplify.yml`.
+
+**Architectural notes:**
+
+- `buildStart` hook generates variants into the cache dir. Mtime-skip
+  cache; orphan eviction; manifest-tracked. Cache survives between the
+  vite-ssg double build (SSR + client passes) so the second build is
+  stat-only.
+- The cache mirrors the site's `assets/` layout (`{cacheDir}/assets/img/...`),
+  so the existing `normalizeAssetKey` strips the same `assets/` prefix
+  and surfaces variants under canonical `img/...` keys. No resolver
+  code change needed.
+- Custom widths/formats/quality remain configurable via `site.imageVariants`
+  in `site.json`. Defaults unchanged: 6 widths × 3 formats per source.
+- Sharp is lazy-imported inside the reconcile orchestrator — only loads
+  when there's actual rendering work, so cold dev-mode start with a
+  warm cache pays no sharp cost.
+- Dev mode: a debounced watcher on `site/assets/img/**` re-runs the
+  pipeline and triggers a full-reload when source images change. Drop
+  a new image, refresh — variants materialize automatically.
+- The classifier distinguishes originals from variant-shaped files by
+  checking whether the trailing width number is in the configured
+  widths set. So `team-2024.jpg` (2024 not in defaults) is an original;
+  `logo-320.webp` is a variant. Edge case escape: rename source files
+  that conflict with the variant pattern.
+
+Tests: 584 passing (45 new for the lifted pipeline modules + classifier;
+19 obsolete tests for the old `_source/`-based pipeline removed).
+
 ## 1.0.0-beta.26
 
 ### Fix: image-variant pipeline now also copies the source to the flat dir
