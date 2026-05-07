@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.0.0-beta.26
+
+### Fix: image-variant pipeline now also copies the source to the flat dir
+
+beta.22 introduced `cms-generate-image-variants`: drop originals at
+`site/assets/img/_source/{name}.{ext}` and the script generates
+`{name}-{width}.{format}` variants back into `site/assets/img/`. Sites
+that adopted the convention discovered a knock-on breakage: every call
+site that consumed an asset by its bare path — `resolveAsset('img/logo.png')`
+in the bundled `Header`, the `${basePath}.${format}` fallback inside
+`useResponsiveImage`, custom site components calling `resolveAsset` on
+`'img/hero.jpg'` directly — started 404'ing because the bare file no
+longer existed in the flat dir. The variant URLs all worked, but every
+bare-path lookup was broken until each site manually maintained a
+duplicate copy of the original at the flat path.
+
+**Fix:** the pipeline now writes a byte-identical copy of each source
+file to the flat dir alongside its variants, preserving the source's
+filename and extension. So `_source/logo.png` → `logo.png` (in flat dir)
+plus `logo-{w}.{avif,webp,jpg}` variants. mtime-skipping applies to the
+copy too — re-runs only re-copy when the source has changed.
+
+This restores backward compatibility for `resolveAsset('img/{name}.{ext}')`
+call sites and gives `useResponsiveImage`'s no-suffix fallback a real
+file to land on for sources that are smaller than every configured
+width (which would otherwise produce content-identical clamped variants
+that Vite asset-deduplicates by hash, breaking variant URLs).
+
+**No site-side migration needed beyond bumping `@koehler8/cms` and
+re-running `npm run generate:image-variants`.** The first re-run after
+the bump produces the flat-dir copies; the next deploy serves them.
+
+Tests: 558 passing (1 added for the copy-byte-identicality guarantee).
+
 ## 1.0.0-beta.25
 
 ### Fix: switching back to base locale didn't actually switch

@@ -119,17 +119,21 @@ describe('planVariantJobs', () => {
     await fs.promises.rm(fixture.root, { recursive: true, force: true });
   });
 
-  it('plans width × format jobs for one source', () => {
+  it('plans width × format jobs for one source plus a source copy', () => {
     const config = { widths: [640, 1280], formats: ['avif', 'webp'], quality: {} };
     const jobs = planVariantJobs({ siteDir: fixture.siteDir, config });
     expect(jobs).toHaveLength(1);
-    expect(jobs[0].outputs).toHaveLength(4);
+    // 1 source copy + (2 widths × 2 formats) = 5 outputs.
+    expect(jobs[0].outputs).toHaveLength(5);
     expect(jobs[0].outputs.map((o) => path.basename(o.outPath))).toEqual([
+      'hero.jpg',
       'hero-640.avif',
       'hero-640.webp',
       'hero-1280.avif',
       'hero-1280.webp',
     ]);
+    expect(jobs[0].outputs[0].kind).toBe('copy');
+    expect(jobs[0].outputs[1].kind).toBe('variant');
   });
 
   it('handles subdirectories under _source', async () => {
@@ -140,7 +144,10 @@ describe('planVariantJobs', () => {
       const config = { widths: [640], formats: ['avif'], quality: {} };
       const jobs = planVariantJobs({ siteDir: subFixture.siteDir, config });
       expect(jobs).toHaveLength(1);
-      expect(jobs[0].outputs[0].outPath).toContain(path.join('img', 'team', 'jamie-640.avif'));
+      const variantOutput = jobs[0].outputs.find((o) => o.kind === 'variant');
+      const copyOutput = jobs[0].outputs.find((o) => o.kind === 'copy');
+      expect(variantOutput.outPath).toContain(path.join('img', 'team', 'jamie-640.avif'));
+      expect(copyOutput.outPath).toContain(path.join('img', 'team', 'jamie.jpg'));
     } finally {
       await fs.promises.rm(subFixture.root, { recursive: true, force: true });
     }
@@ -187,10 +194,12 @@ describe('generateVariants', () => {
   it('generates the full matrix on a clean run', async () => {
     const result = await generateVariants({ siteDir: fixture.siteDir, log: noop, warn: noop });
     expect(result.sources).toBe(1);
-    expect(result.generated).toBe(6); // 2 widths × 3 formats
+    // 2 widths × 3 formats = 6 variants, plus 1 source copy.
+    expect(result.generated).toBe(7);
     expect(result.skipped).toBe(0);
 
     const imgDir = path.join(fixture.siteDir, 'assets', 'img');
+    expect(fs.existsSync(path.join(imgDir, 'hero.jpg'))).toBe(true);
     expect(fs.existsSync(path.join(imgDir, 'hero-320.avif'))).toBe(true);
     expect(fs.existsSync(path.join(imgDir, 'hero-320.webp'))).toBe(true);
     expect(fs.existsSync(path.join(imgDir, 'hero-320.jpg'))).toBe(true);
@@ -199,11 +208,20 @@ describe('generateVariants', () => {
     expect(fs.existsSync(path.join(imgDir, 'hero-640.jpg'))).toBe(true);
   });
 
+  it('copies the source file to the flat dir with byte-identical content', async () => {
+    await generateVariants({ siteDir: fixture.siteDir, log: noop, warn: noop });
+    const sourcePath = path.join(fixture.siteDir, 'assets', 'img', '_source', 'hero.jpg');
+    const copyPath = path.join(fixture.siteDir, 'assets', 'img', 'hero.jpg');
+    const sourceBuf = await fs.promises.readFile(sourcePath);
+    const copyBuf = await fs.promises.readFile(copyPath);
+    expect(copyBuf.equals(sourceBuf)).toBe(true);
+  });
+
   it('skips up-to-date variants on re-run', async () => {
     await generateVariants({ siteDir: fixture.siteDir, log: noop, warn: noop });
     const result = await generateVariants({ siteDir: fixture.siteDir, log: noop, warn: noop });
     expect(result.generated).toBe(0);
-    expect(result.skipped).toBe(6);
+    expect(result.skipped).toBe(7);
   });
 
   it('regenerates when source mtime is newer', async () => {
@@ -214,7 +232,7 @@ describe('generateVariants', () => {
     fs.utimesSync(sourcePath, future, future);
 
     const result = await generateVariants({ siteDir: fixture.siteDir, log: noop, warn: noop });
-    expect(result.generated).toBe(6);
+    expect(result.generated).toBe(7);
     expect(result.skipped).toBe(0);
   });
 

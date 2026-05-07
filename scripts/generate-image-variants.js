@@ -136,13 +136,25 @@ export function planVariantJobs({ siteDir, config }) {
     const baseName = parsed.name;
 
     const outputs = [];
+
+    // Copy the source to the flat dir under its bare name. Components that
+    // reference assets by their bare path (`resolveAsset('img/logo.png')`,
+    // useResponsiveImage's `${basePath}.${format}` fallback) need the
+    // original present at `site/assets/img/{name}.{ext}`; without this,
+    // sites that migrate originals into _source/ break every bare-path
+    // lookup.
+    outputs.push({
+      kind: 'copy',
+      outPath: path.join(imgDir, subdir, parsed.base),
+    });
+
     for (const width of config.widths) {
       for (const format of config.formats) {
         const ext = FORMAT_OUTPUT_EXT[format];
         if (!ext) continue;
         const outName = `${baseName}-${width}.${ext}`;
         const outPath = path.join(imgDir, subdir, outName);
-        outputs.push({ width, format, outPath });
+        outputs.push({ kind: 'variant', width, format, outPath });
       }
     }
     jobs.push({ sourcePath, outputs });
@@ -154,6 +166,11 @@ export function planVariantJobs({ siteDir, config }) {
 async function renderOutput(sourcePath, output, config) {
   const { width, format, outPath } = output;
   await fs.promises.mkdir(path.dirname(outPath), { recursive: true });
+
+  if (output.kind === 'copy') {
+    await fs.promises.copyFile(sourcePath, outPath);
+    return;
+  }
 
   let pipeline = sharp(sourcePath, { failOn: 'truncated' }).rotate();
   pipeline = pipeline.resize({ width, withoutEnlargement: true });
