@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.0.0-beta.30
+
+### Chore: minor dependency sweep
+
+Targeted bumps within existing semver ranges — no API or behavior change.
+
+- `@unhead/vue` 2.0.19 → 2.1.15
+- `ajv` 8.17.1 → 8.20.0
+- `@vue/test-utils` 2.4.6 → 2.4.10 (dev)
+- `happy-dom` 20.8.9 → 20.9.0 (dev)
+- `vitest` 4.1.4 → 4.1.6 (dev)
+- `vite` 8.0.8 → 8.0.13 (lockfile, peer)
+- `@vitejs/plugin-vue` 6.0.5 → 6.0.7 (lockfile, peer)
+- `vue` 3.5.32 → 3.5.34 (lockfile, peer; added to devDependencies to pin dev-time install)
+- `vue-router` 5.0.4 → 5.0.7 (lockfile, peer; same reason)
+
+Two majors deferred for a separate release: `@unhead/vue` 3.x (touches `usePageMeta`,
+SEO emission) and `sharp` 0.34.x (touches the image-variants pipeline).
+
+Tests: 588 passing.
+
+No site-side migration needed — bump cms and rebuild.
+
 ## 1.0.0-beta.29
 
 ### Fix: Hero background image silently lost during Vue's :style normalization
