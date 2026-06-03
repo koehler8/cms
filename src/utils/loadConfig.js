@@ -309,11 +309,43 @@ let _loadConfigData = async () => {
 let _availableLocales = [];
 let _baseLocale = '';
 
+// Synchronous, client-side cache of the config the SSR/SSG pass already
+// resolved. Warmed once before mount (see main.js, from the vite-ssg-
+// serialized `initialState.siteConfig`) so the first client render can
+// populate synchronously and match the prerendered DOM — eliminating the
+// paint -> blank -> paint flash caused by config arriving asynchronously via
+// lazy dynamic-import chunks. Keyed by normalized locale; SSR never reads it.
+const _syncConfigCache = new Map();
+
+function normalizeConfigCacheKey(locale) {
+  if (typeof locale === 'string') {
+    const trimmed = locale.trim().toLowerCase();
+    if (trimmed) return trimmed;
+  }
+  return 'default';
+}
+
 export function setConfigLoader(instance) {
   if (!instance) return;
   _loadConfigData = instance.loadConfigData;
   _availableLocales = instance.availableLocales || [];
   _baseLocale = typeof instance.baseLocale === 'string' ? instance.baseLocale : '';
+  _syncConfigCache.clear();
+}
+
+// Store a resolved config for synchronous retrieval during the first client
+// render. Pass the config exactly as the server resolved it (e.g. the
+// serialized `initialState.siteConfig`) so `peekConfigSync` returns a value
+// that matches the prerendered DOM.
+export function primeConfigSync(locale, config) {
+  if (!config || typeof config !== 'object') return;
+  _syncConfigCache.set(normalizeConfigCacheKey(locale), config);
+}
+
+// Retrieve a primed config synchronously, or null on a miss. Client-only fast
+// path used by usePageConfig; a miss falls back to the async loader.
+export function peekConfigSync(locale) {
+  return _syncConfigCache.get(normalizeConfigCacheKey(locale)) || null;
 }
 
 export { _availableLocales as availableLocales };

@@ -1,5 +1,5 @@
 import { onServerPrefetch, ref, watch } from 'vue';
-import { loadConfigData, mergeConfigTrees } from '../utils/loadConfig.js';
+import { loadConfigData, mergeConfigTrees, peekConfigSync } from '../utils/loadConfig.js';
 
 function normalizePath(value) {
   if (!value || typeof value !== 'string') return '/';
@@ -122,7 +122,39 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
     return null;
   }
 
-  async function syncPage() {
+  // Synchronously apply a resolved config to the reactive refs. Kept pure and
+  // synchronous so it can run during the first client render (matching the
+  // prerendered DOM) as well as after an async load. Throws if the config has
+  // no selectable page, so callers can fall back.
+  function applyConfig(config) {
+    siteData.value = config;
+    const selectedPage = selectPage(config);
+
+    if (!selectedPage) {
+      throw new Error('No pages defined in configuration.');
+    }
+
+    const sharedContent = config?.shared?.content;
+    const mergedContent = mergeWithSharedContent(sharedContent, selectedPage.content);
+    currentPage.value = {
+      ...selectedPage,
+      content: mergedContent,
+    };
+    pageContent.value = mergedContent;
+
+    if (typeof onPageLoaded === 'function') {
+      onPageLoaded({ config, page: selectedPage, content: mergedContent });
+    }
+
+    componentKeys.value = Array.isArray(selectedPage.components)
+      ? selectedPage.components.map((entry) => (entry && typeof entry === 'object' ? { ...entry } : entry))
+      : [];
+  }
+
+  // soft: when true, keep the currently-rendered components visible while the
+  // new config loads (no blank-out). Used by the post-hydration locale
+  // reconcile so a saved-locale switch doesn't reintroduce a flash.
+  async function syncPage({ soft = false } = {}) {
     const requestId = ++activeRequest;
     const currentLocale = typeof locale === 'function' ? locale() : locale;
     const localeKey = (currentLocale || '').toString().toLowerCase() || 'default';
@@ -131,7 +163,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
 
     if (requestId === activeRequest) {
       isLoading.value = true;
-      if (shouldReload) {
+      if (shouldReload && !soft) {
         componentKeys.value = [];
       }
       loadError.value = null;
@@ -145,28 +177,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
 
       if (requestId !== activeRequest) return;
 
-      siteData.value = cachedConfig;
-      const selectedPage = selectPage(cachedConfig);
-
-      if (!selectedPage) {
-        throw new Error('No pages defined in configuration.');
-      }
-
-      const sharedContent = cachedConfig?.shared?.content;
-      const mergedContent = mergeWithSharedContent(sharedContent, selectedPage.content);
-      currentPage.value = {
-        ...selectedPage,
-        content: mergedContent,
-      };
-      pageContent.value = mergedContent;
-
-      if (typeof onPageLoaded === 'function') {
-        onPageLoaded({ config: cachedConfig, page: selectedPage, content: mergedContent });
-      }
-
-      componentKeys.value = Array.isArray(selectedPage.components)
-        ? selectedPage.components.map((entry) => (entry && typeof entry === 'object' ? { ...entry } : entry))
-        : [];
+      applyConfig(cachedConfig);
     } catch (error) {
       if (requestId !== activeRequest) return;
       if (import.meta.env.DEV) {
@@ -186,11 +197,53 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
     }
   }
 
+  // Client-only: populate refs synchronously from the config the server pass
+  // already resolved + serialized (primed into a sync cache by main.js before
+  // mount). This makes the first client render reproduce the prerendered DOM
+  // instead of an empty <main> while the async loader runs — the fix for the
+  // paint -> blank -> paint white-flash. Returns false on a cache miss, so the
+  // caller falls back to the async path (previous behavior).
+  function hydrateFromSyncCache() {
+    const currentLocale = typeof locale === 'function' ? locale() : locale;
+    const localeKey = (currentLocale || '').toString().toLowerCase() || 'default';
+    const localeForConfig = localeKey === 'default' ? undefined : localeKey;
+
+    const primed = peekConfigSync(localeForConfig);
+    if (!primed) return false;
+
+    try {
+      applyConfig(primed);
+    } catch {
+      return false;
+    }
+    cachedConfig = primed;
+    lastLocaleKey = localeKey;
+
+    // Preserve the saved-locale auto-switch on base-locale routes: the server
+    // has no localStorage, so it rendered the base locale. If a returning
+    // visitor stored a different locale, reconcile AFTER the first paint
+    // (soft = no blank) so that paint still matches the server but the saved
+    // choice is honored.
+    if (localeForConfig === undefined && typeof localStorage !== 'undefined') {
+      let stored = '';
+      try {
+        stored = (localStorage.getItem('locale') || '').trim().toLowerCase();
+      } catch {
+        stored = '';
+      }
+      if (stored) {
+        lastLocaleKey = null; // force the reconcile to reload with localStorage resolution
+        syncPage({ soft: true });
+      }
+    }
+    return true;
+  }
+
   if (import.meta.env.SSR) {
     onServerPrefetch(async () => {
       await syncPage();
     });
-  } else {
+  } else if (!hydrateFromSyncCache()) {
     syncPage();
   }
 
