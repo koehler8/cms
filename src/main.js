@@ -6,7 +6,7 @@ import App from './App.vue';
 import { routes, resolveHistory, applyRouterGuards } from './router/index.js';
 
 import { shouldEnableAnalytics, scheduleAnalyticsLoad } from './utils/cookieConsent.js';
-import { loadConfigData } from './utils/loadConfig.js';
+import { loadConfigData, primeConfigSync } from './utils/loadConfig.js';
 import { persistAttributionFromLocation } from './utils/trackingContext.js';
 import { applyThemeVariables } from './themes/themeManager.js';
 import { setActiveThemeKey } from './utils/themeColors.js';
@@ -158,6 +158,10 @@ export function createCmsApp() {
           initialState.siteTheme = existingTheme;
           setActiveThemeKey(existingTheme);
           applySiteTheme(existingTheme, ctx.head);
+          // Expose the server-resolved config for the first synchronous client
+          // render (see usePageConfig.hydrateFromSyncCache) so the prerendered
+          // DOM isn't replaced by an empty render while the async loader runs.
+          primeConfigSync(localeKey, initialState.siteConfig);
           return initialState.siteConfig;
         }
 
