@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.0.0-beta.31
+
+### Fix: White-flash on page load across all sites (synchronous first client render)
+
+Every page rendered its body through `usePageConfig`, which on the client fired
+its config load **un-awaited**. Because page content is loaded via lazy
+`import.meta.glob` dynamic-import chunks, the first client render produced an
+empty `<main>` that replaced the prerendered HTML until the async load resolved
+— a visible paint → blank → paint flash on every page, worst on slower (mobile)
+CPUs.
+
+The server-resolved config is already serialized into `initialState.siteConfig`
+by vite-ssg. We now bridge it into a synchronous cache (`primeConfigSync` /
+`peekConfigSync` in `loadConfig.js`, primed from `main.js` before mount) that
+`usePageConfig` reads on its first client render (`hydrateFromSyncCache`), so
+that render reproduces the prerendered DOM instead of blanking. A returning
+visitor's saved `localStorage` locale is preserved via a soft post-render
+reconcile; a cache miss falls back to the previous async path.
+
+Verified on a real SSG build of `site-erea`: the rendered `#app` content held at
+~99% of its prerendered size throughout mount (vs. collapsing to ~0.3% on
+beta.30) — flash eliminated on desktop and mobile, console clean.
+
+### Fix: Scaffold template `.env.example` swallowed by `.env*` gitignore
+
+The site scaffolder copies `templates/scaffolds/site/.env.example`, but the
+broad `.env*` rule in `.gitignore` meant the template was never committed.
+Fresh clones / CI lacked it, so `cms-create-site` produced an incomplete
+scaffold and the scaffold test failed off a clean checkout. Added a `.gitignore`
+negation and committed the placeholder.
+
+No site-side migration needed — bump cms and rebuild.
+
+Tests: 596 passing.
+
 ## 1.0.0-beta.30
 
 ### Chore: minor dependency sweep
