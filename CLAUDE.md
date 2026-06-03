@@ -88,12 +88,16 @@ tests/
 
 ## Publishing
 
-1. Bump version in `package.json`
-2. Commit and tag: `git tag v{version}`
-3. Push tag: `git push origin v{version}`
-4. GitHub Actions workflow (`.github/workflows/publish.yml`) publishes to GitHub Packages
+Published to the **public npm registry** (`registry.npmjs.org`) — not GitHub Packages — by the `Publish to npm` workflow (`.github/workflows/publish.yml`), which triggers on pushing a `v*` git tag.
 
-The CI uses `npm install --ignore-scripts` (skips the lru-cache patch since it's not needed on the publish machine).
+1. Bump the version in `package.json` + `package-lock.json` (`npm version <ver> --no-git-tag-version`) and add a `CHANGELOG.md` entry.
+2. Commit, then tag: `git tag v<version>`.
+3. Push both: `git push origin main && git push origin v<version>`.
+4. The tag push fires the workflow → `npm publish --access public`. **Prerelease** versions (those containing `-`, e.g. `1.0.0-beta.31`) publish under the **`beta`** dist-tag; stable versions go to `latest`. Consuming sites pin a `^1.0.0-beta.N` range, so a new beta is only picked up on their next `npm install` / lockfile refresh — **each site needs its own dependency bump + push to redeploy.**
+
+No build or `npm install` runs in CI — the package ships as **source** (see the `files` field and the `exports` map pointing at `./src/*`), so `npm publish` just packs those files. The `postinstall` lru-cache patch runs only in consumers, never on publish.
+
+**Auth (`NPM_TOKEN` secret):** must be a valid npm token with publish rights to `@koehler8/cms`. If it expires, `npm publish` fails with a **misleading `E404` on the `PUT`** (npm returns 404, not 401, for an under-authorized scoped publish). Rotate it: create a **classic Automation token** (non-expiring, bypasses 2FA) at npmjs.com → `gh secret set NPM_TOKEN --repo koehler8/cms` → `gh run rerun <failed-run-id>` (the tag is already pushed; no re-tag needed).
 
 ## Key Files for Common Tasks
 
