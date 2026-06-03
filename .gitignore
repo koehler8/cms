@@ -4,6 +4,9 @@ dist/
 *.log
 *.local
 .env*
+# Scaffold templates ship a committed .env.example placeholder; keep it tracked
+# even though the broad .env* rule above would otherwise swallow it.
+!templates/scaffolds/**/.env.example
 .vscode/
 .idea/
 coverage/
