@@ -8,6 +8,7 @@ function setup(overrides = {}) {
     pages: overrides.pages ?? {},
     baseLocale: overrides.baseLocale ?? 'en',
     locale: overrides.locale ?? '',
+    trailingSlash: overrides.trailingSlash ?? false,
   });
 }
 
@@ -147,5 +148,21 @@ describe('buildBreadcrumbList', () => {
         currentPage: null,
       }),
     ).toBeNull();
+  });
+
+  it('appends trailing slashes to item URLs when trailingSlash is true', () => {
+    const list = setup({ currentPage: { path: '/blog/2026/post-1' }, trailingSlash: true });
+    expect(list.itemListElement.map((e) => e.item)).toEqual([
+      'https://example.com/',
+      'https://example.com/blog/',
+      'https://example.com/blog/2026/',
+      'https://example.com/blog/2026/post-1/',
+    ]);
+  });
+
+  it('appends trailing slashes under a non-base locale', () => {
+    const list = setup({ currentPage: { path: '/about' }, locale: 'de', trailingSlash: true });
+    expect(list.itemListElement[0].item).toBe('https://example.com/de/');
+    expect(list.itemListElement[1].item).toBe('https://example.com/de/about/');
   });
 });

@@ -135,7 +135,9 @@ const availableLocales = computed(() => siteLocales.map((code) => code.trim()).f
 // that URL doesn't pre-render and would 404. Build the link path
 // accordingly: base → `/`, others → `/{locale}`.
 const localeHref = (locale) => {
-  return locale === siteBaseLocale ? '/' : `/${locale}`;
+  if (locale === siteBaseLocale) return '/';
+  const slash = injectedSiteData.value?.site?.trailingSlash === true ? '/' : '';
+  return `/${locale}${slash}`;
 };
 const localeLabels = {
   en: 'English',

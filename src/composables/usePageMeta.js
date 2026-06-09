@@ -56,6 +56,7 @@ export function usePageMeta({ siteData, currentPage, locale }) {
   const siteTitle = computed(() => siteData.value?.site?.title || '');
   const siteDescription = computed(() => siteData.value?.site?.description || '');
   const siteUrl = computed(() => siteData.value?.site?.url || '');
+  const trailingSlash = computed(() => siteData.value?.site?.trailingSlash === true);
   const localeValue = computed(() => {
     if (typeof locale === 'function') return locale() || '';
     if (typeof locale === 'string') return locale;
@@ -116,6 +117,7 @@ export function usePageMeta({ siteData, currentPage, locale }) {
       locale: localeValue.value,
       baseLocale: configBaseLocale,
       path: currentPage.value?.path || '/',
+      trailingSlash: trailingSlash.value,
     });
   });
 
@@ -135,6 +137,7 @@ export function usePageMeta({ siteData, currentPage, locale }) {
         locale: code,
         baseLocale: configBaseLocale,
         path,
+        trailingSlash: trailingSlash.value,
       });
       if (href) {
         links.push({ rel: 'alternate', hreflang: code, href, key: `hreflang-${code}` });
@@ -145,6 +148,7 @@ export function usePageMeta({ siteData, currentPage, locale }) {
       locale: configBaseLocale,
       baseLocale: configBaseLocale,
       path,
+      trailingSlash: trailingSlash.value,
     });
     if (defaultHref) {
       links.push({ rel: 'alternate', hreflang: 'x-default', href: defaultHref, key: 'hreflang-x-default' });
@@ -216,6 +220,7 @@ export function usePageMeta({ siteData, currentPage, locale }) {
       pages: siteData.value?.pages,
       baseLocale: configBaseLocale,
       locale: localeValue.value,
+      trailingSlash: trailingSlash.value,
     });
     if (breadcrumb && !isDraft.value && !isNotFound.value) {
       script.push({

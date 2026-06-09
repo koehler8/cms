@@ -63,6 +63,7 @@ export function buildBreadcrumbList({
   pages,
   baseLocale,
   locale,
+  trailingSlash = false,
 } = {}) {
   if (!currentPage || typeof currentPage !== 'object') return null;
   if (currentPage.isNotFound) return null;
@@ -83,6 +84,7 @@ export function buildBreadcrumbList({
     locale,
     baseLocale,
     path: '/',
+    trailingSlash,
   });
 
   const items = [
@@ -101,6 +103,7 @@ export function buildBreadcrumbList({
       locale,
       baseLocale,
       path: prefixPath,
+      trailingSlash,
     });
     items.push({
       '@type': 'ListItem',

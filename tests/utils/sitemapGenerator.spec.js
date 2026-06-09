@@ -208,6 +208,60 @@ describe('buildSitemap', () => {
       expect(xml).toContain('<url><loc>https://example.com/about</loc></url>');
     });
   });
+
+  describe('trailingSlash', () => {
+    it('appends a trailing slash to non-root <loc> when site.trailingSlash is true', () => {
+      const xml = buildSitemap(
+        siteConfig({
+          site: { trailingSlash: true },
+          pages: { home: { path: '/' }, about: { path: '/about' }, privacy: { path: '/privacy' } },
+        }),
+      );
+      expect(xml).toContain('<loc>https://example.com/</loc>'); // root unchanged
+      expect(xml).toContain('<loc>https://example.com/about/</loc>');
+      expect(xml).toContain('<loc>https://example.com/privacy/</loc>');
+      expect(xml).not.toContain('<loc>https://example.com/about</loc>');
+    });
+
+    it('default (no flag) emits no-slash <loc> (regression)', () => {
+      const xml = buildSitemap(siteConfig({ pages: { about: { path: '/about' } } }));
+      expect(xml).toContain('<loc>https://example.com/about</loc>');
+      expect(xml).not.toContain('<loc>https://example.com/about/</loc>');
+    });
+
+    it('applies the slash to multi-locale hreflang alternates too', () => {
+      const xml = buildSitemap(
+        siteConfig({ site: { trailingSlash: true }, pages: { about: { path: '/about' } } }),
+        { availableLocales: ['en', 'de'], baseLocale: 'en' },
+      );
+      expect(xml).toContain('<loc>https://example.com/about/</loc>');
+      expect(xml).toContain('hreflang="de" href="https://example.com/de/about/"');
+      expect(xml).toContain('hreflang="en" href="https://example.com/about/"');
+    });
+
+    // Locks the alignment: under the flag, every URL the sitemap advertises
+    // ends in "/" (except root) — so it matches the slash form the host serves
+    // at 200, never the no-slash form that 301-redirects.
+    it('every non-root sitemap URL ends in "/" under the flag (consistency invariant)', () => {
+      const xml = buildSitemap(
+        siteConfig({
+          site: { trailingSlash: true },
+          pages: {
+            home: { path: '/' },
+            a: { path: '/malibu' },
+            b: { path: '/laguna-beach' },
+            c: { path: '/long-beach' },
+          },
+        }),
+      );
+      const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+      expect(locs.length).toBe(4);
+      for (const loc of locs) {
+        if (new URL(loc).pathname === '/') continue;
+        expect(loc.endsWith('/'), `${loc} should end with a slash`).toBe(true);
+      }
+    });
+  });
 });
 
 describe('getSitemapUrl', () => {

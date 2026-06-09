@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.0.0-beta.33
+
+### Add: opt-in trailing-slash canonical URLs (`site.trailingSlash`)
+
+New `site.trailingSlash` boolean in `site.json` (default **off**). When enabled,
+every non-root canonical URL gets a trailing slash — `<link rel="canonical">`,
+`og:url`, `hreflang` alternates, `sitemap.xml` `<loc>`/alternates, breadcrumb
+`item` URLs, and the locale switcher all emit `/about/`, `/de/`, `/de/about/`.
+The root (`/`) is unchanged.
+
+This aligns the framework's emitted URLs with how a static host serving nested
+`dirStyle` output (`/about/index.html`) actually serves the page: `/about/` at
+`200`, with `/about` `301`-redirecting to it. Without the flag the canonical
+named the no-slash form, so once the SSG host rules are in place (the `/404.html`
+catch-all from the beta.32-era provisioning template) the canonical pointed at a
+URL that redirects. The flag closes that gap — it matters for multi-page sites
+(per-route landing pages); single-page sites whose only sub-pages are compliance
+boilerplate can stay on the default.
+
+Single source of truth: `buildCanonicalUrl` gained a `trailingSlash` option, and
+the four consumers (`usePageMeta`, `sitemapGenerator`, `breadcrumbs`, the
+`Header` locale switcher) read `site.trailingSlash` and thread it through.
+Default (`false`) output is byte-identical to before; a sitemap consistency test
+asserts every non-root URL ends in `/` under the flag.
+
+**Pair with the host rules.** `site.trailingSlash` and the SSG Amplify catch-all
+(`/<*>` → `/404.html` `404`, not the SPA `/index.html` rewrite) are a matched
+set — enable them together so the canonical names the URL the host serves at 200.
+
 ## 1.0.0-beta.32
 
 ### Fix: robots.txt no longer blocks sitemap-listed compliance pages

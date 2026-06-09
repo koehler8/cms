@@ -27,6 +27,7 @@ function escapeXml(value) {
 export function buildSitemap(siteConfig, options = {}) {
   const siteUrl = (siteConfig?.site?.url || '').trim().replace(/\/+$/, '');
   if (!siteUrl) return '';
+  const trailingSlash = siteConfig?.site?.trailingSlash === true;
 
   // Whole-site draft → no sitemap. robots.txt emits "Disallow: /" in this
   // state, and listing URLs in the sitemap that the same robots blocks
@@ -52,13 +53,13 @@ export function buildSitemap(siteConfig, options = {}) {
     if (seenPaths.has(pagePath)) continue;
     seenPaths.add(pagePath);
 
-    const baseUrl = buildCanonicalUrl({ siteUrl, baseLocale, locale: baseLocale, path: pagePath });
+    const baseUrl = buildCanonicalUrl({ siteUrl, baseLocale, locale: baseLocale, path: pagePath, trailingSlash });
     if (!baseUrl) continue;
 
     const alternates = isMultiLocale
       ? availableLocales.map((loc) => ({
           hreflang: loc,
-          href: buildCanonicalUrl({ siteUrl, baseLocale, locale: loc, path: pagePath }),
+          href: buildCanonicalUrl({ siteUrl, baseLocale, locale: loc, path: pagePath, trailingSlash }),
         }))
       : [];
     if (isMultiLocale) {

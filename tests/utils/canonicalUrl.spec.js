@@ -128,3 +128,59 @@ describe('buildCanonicalUrl', () => {
     ).toBe('https://example.com/de/blog/2026/post-1');
   });
 });
+
+describe('buildCanonicalUrl with trailingSlash', () => {
+  const base = { siteUrl: 'https://example.com', baseLocale: 'en' };
+
+  it('appends a trailing slash to base-locale sub-paths', () => {
+    expect(buildCanonicalUrl({ ...base, path: '/about', trailingSlash: true })).toBe(
+      'https://example.com/about/',
+    );
+  });
+
+  it('appends a trailing slash to non-base-locale sub-paths', () => {
+    expect(
+      buildCanonicalUrl({ ...base, locale: 'de', path: '/about', trailingSlash: true }),
+    ).toBe('https://example.com/de/about/');
+  });
+
+  it('appends a trailing slash to the locale root', () => {
+    expect(buildCanonicalUrl({ ...base, locale: 'de', path: '/', trailingSlash: true })).toBe(
+      'https://example.com/de/',
+    );
+  });
+
+  it('leaves the base-locale root as a single slash', () => {
+    expect(buildCanonicalUrl({ ...base, path: '/', trailingSlash: true })).toBe(
+      'https://example.com/',
+    );
+    expect(buildCanonicalUrl({ ...base, path: '', trailingSlash: true })).toBe(
+      'https://example.com/',
+    );
+  });
+
+  it('appends a trailing slash to nested paths', () => {
+    expect(
+      buildCanonicalUrl({ ...base, locale: 'de', path: '/blog/2026/post-1', trailingSlash: true }),
+    ).toBe('https://example.com/de/blog/2026/post-1/');
+  });
+
+  it('is idempotent when the input path already has a trailing slash', () => {
+    expect(buildCanonicalUrl({ ...base, path: '/about/', trailingSlash: true })).toBe(
+      'https://example.com/about/',
+    );
+    expect(buildCanonicalUrl({ ...base, path: '//about//', trailingSlash: true })).toBe(
+      'https://example.com/about/',
+    );
+  });
+
+  it('default (false) is byte-identical to the no-slash scheme', () => {
+    expect(buildCanonicalUrl({ ...base, path: '/about' })).toBe('https://example.com/about');
+    expect(buildCanonicalUrl({ ...base, path: '/about', trailingSlash: false })).toBe(
+      'https://example.com/about',
+    );
+    expect(
+      buildCanonicalUrl({ ...base, locale: 'de', path: '/about', trailingSlash: false }),
+    ).toBe('https://example.com/de/about');
+  });
+});

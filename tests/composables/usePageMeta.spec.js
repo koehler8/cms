@@ -231,6 +231,17 @@ describe('usePageMeta', () => {
       const canonical = head.link.find((l) => l.rel === 'canonical');
       expect(canonical.href).toBe('https://example.com/');
     });
+
+    it('emits a trailing-slash canonical when site.trailingSlash is true', () => {
+      setup(
+        { url: 'https://example.com', trailingSlash: true },
+        { id: 'about', path: '/about' },
+        { availableLocales: ['en'], baseLocale: 'en' },
+      );
+      const head = readHead();
+      const canonical = head.link.find((l) => l.rel === 'canonical');
+      expect(canonical.href).toBe('https://example.com/about/');
+    });
   });
 
   describe('hreflang alternates', () => {
