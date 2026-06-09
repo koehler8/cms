@@ -6,8 +6,11 @@
  * (site.draft, site.draftPaths, page.draft) regenerates the disallow list on
  * every build.
  *
- * Always includes the framework-default disallows (/admin, /privacy, /terms,
- * /cookies — these routes exist on every CMS site). Adds:
+ * Always disallows /admin (a non-public route that is never listed in the
+ * sitemap). Compliance pages (/privacy, /terms, /cookies) are intentionally
+ * NOT disallowed: they are public, footer-linked, emit correct canonicals, and
+ * appear in sitemap.xml — disallowing them contradicts the sitemap and triggers
+ * "Blocked by robots.txt" (pages-in-a-sitemap) errors in Search Console. Adds:
  *   - "Disallow: /" when site.draft === true
  *   - "Disallow: <prefix>" for each entry in site.draftPaths
  *   - "Disallow: <path>" for each page with draft === true
@@ -17,7 +20,7 @@
 
 import { normalizeDraftPath } from './draftMode.js';
 
-const FRAMEWORK_DEFAULTS = ['/admin', '/privacy', '/terms', '/cookies'];
+const FRAMEWORK_DEFAULTS = ['/admin'];
 
 export function buildRobotsTxt(siteConfig, sitemapUrl = '') {
   const lines = ['User-agent: *'];

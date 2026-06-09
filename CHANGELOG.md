@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.0-beta.32
+
+### Fix: robots.txt no longer blocks sitemap-listed compliance pages
+
+`robotsGenerator` hard-coded `Disallow: /privacy`, `/terms`, `/cookies` as
+framework defaults, while `sitemapGenerator` lists those same compliance pages
+in `sitemap.xml`. Every site therefore advertised the compliance pages for
+indexing (sitemap) while simultaneously forbidding their crawl (robots.txt) —
+surfacing as "Blocked by robots.txt" / "pages in a sitemap" errors in Search
+Console across the fleet on 2026-06-09.
+
+The framework default is now `['/admin']` only. `/admin` is non-public and never
+appears in the sitemap, so no contradiction remains. Compliance pages are
+public, footer-linked, emit correct canonicals, and are meant to be indexed —
+they stay crawlable. Draft gating (`site.draft`, `site.draftPaths`, page
+`draft`) is unchanged and still emits its Disallow lines (those pages are also
+omitted from the sitemap, so they stay consistent).
+
+A new robots/sitemap consistency invariant test asserts that no URL listed in
+the sitemap can ever be `Disallow`'d by the robots output generated from the
+same config — making this class of contradiction impossible to reintroduce.
+
 ## 1.0.0-beta.31
 
 ### Fix: White-flash on page load across all sites (synchronous first client render)
