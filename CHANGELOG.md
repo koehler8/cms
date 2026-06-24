@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.0-beta.34
+
+### Fix: language switcher keeps you on the same page
+
+The locale dropdown in the bundled `Header` now preserves the current path when
+switching languages — selecting Español on `/the-wait` goes to `/es/the-wait`
+(previously it bounced to the locale home, `/es`). Slugs are shared across
+locales, so the current path's leading locale segment is stripped and the target
+locale is re-prefixed. Honors `site.trailingSlash`. Homepage behavior is
+unchanged (still `/` ↔ `/{locale}`).
+
+### Fix: `<html lang>` reflects the page locale in prerendered HTML
+
+`usePageMeta` now sets `htmlAttrs.lang` during SSR/SSG, so the on-disk HTML for a
+`/{locale}/...` page ships `<html lang="{locale}">` instead of the empty/base
+value (previously the router guard only set it client-side, after hydration).
+Base-locale pages use the configured base locale. Improves accessibility and
+clears `hreflang` / `<html lang>` mismatch warnings in Search Console.
+
 ## 1.0.0-beta.33
 
 ### Add: opt-in trailing-slash canonical URLs (`site.trailingSlash`)

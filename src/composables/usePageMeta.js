@@ -231,6 +231,11 @@ export function usePageMeta({ siteData, currentPage, locale }) {
     }
 
     return {
+      // Reflect the page's locale on <html lang> during SSR/prerender so the
+      // on-disk HTML for /{locale}/... ships the right language (the router
+      // guard only sets this client-side, after hydration). Base-locale pages
+      // fall back to the configured base locale.
+      htmlAttrs: { lang: localeValue.value || configBaseLocale || 'en' },
       title: pageMetaTitle.value,
       meta,
       link,

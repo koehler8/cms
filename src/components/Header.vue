@@ -130,14 +130,26 @@ const isHeaderCompact = ref(false);
 const currentLocale = ref('');
 const availableLocales = computed(() => siteLocales.map((code) => code.trim()).filter(Boolean));
 
-// The base locale is served at the unprefixed root path (`/`) — clicking
-// the dropdown item for it should NOT navigate to `/{baseLocale}` because
-// that URL doesn't pre-render and would 404. Build the link path
-// accordingly: base → `/`, others → `/{locale}`.
+// Switching language keeps the visitor on the SAME page rather than bouncing
+// them to the locale's home. Slugs are shared across locales, so take the
+// current path, strip any leading non-base locale segment, and re-prefix with
+// the target locale. The base locale is served unprefixed (`/path`); others at
+// `/{locale}/path`. (`/{baseLocale}/path` doesn't pre-render and would 404,
+// hence the base stays unprefixed.)
 const localeHref = (locale) => {
-  if (locale === siteBaseLocale) return '/';
+  const segments = (route.path || '/').split('/').filter(Boolean);
+  if (segments.length) {
+    const first = segments[0].toLowerCase();
+    if (first !== siteBaseLocale && availableLocales.value.includes(first)) {
+      segments.shift();
+    }
+  }
+  const rest = segments.join('/');
   const slash = injectedSiteData.value?.site?.trailingSlash === true ? '/' : '';
-  return `/${locale}${slash}`;
+  if (locale === siteBaseLocale) {
+    return rest ? `/${rest}${slash}` : '/';
+  }
+  return rest ? `/${locale}/${rest}${slash}` : `/${locale}${slash}`;
 };
 const localeLabels = {
   en: 'English',
