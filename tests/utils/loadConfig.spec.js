@@ -113,6 +113,25 @@ describe('resolvePageIdForRoute', () => {
     const cfg = { pages: { home: {}, about: { path: '/about' } } };
     expect(resolvePageIdForRoute(cfg, '/')).toBe('home');
   });
+
+  it('does not let a custom path-less 404 page collide with home at "/"', () => {
+    // A site shipping pages/404.json (path-less) must still trim its home page:
+    // the 404 is served at /404, never /, so "/" resolves unambiguously to home.
+    const cfg = { pages: { home: { path: '/' }, '404': {}, about: { path: '/about' } } };
+    expect(resolvePageIdForRoute(cfg, '/')).toBe('home');
+  });
+
+  it('maps the SSG /404 route to a custom path-less 404 page (incl. locale prefix)', () => {
+    const cfg = { pages: { home: { path: '/' }, '404': {}, about: { path: '/about' } } };
+    expect(resolvePageIdForRoute(cfg, '/404')).toBe('404');
+    expect(resolvePageIdForRoute(cfg, '/404/')).toBe('404');
+    expect(resolvePageIdForRoute(cfg, '/es/404', 'es')).toBe('404');
+  });
+
+  it('leaves /404 unmatched when the site has no custom 404 page (safe no-op)', () => {
+    const cfg = { pages: { home: { path: '/' }, about: { path: '/about' } } };
+    expect(resolvePageIdForRoute(cfg, '/404')).toBeNull();
+  });
 });
 
 describe('mergeConfigTrees', () => {

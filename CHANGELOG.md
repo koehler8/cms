@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.0.0-beta.37
+
+### Fix: `site.trimInitialState` now trims each page to its **own** config
+
+The opt-in SSG payload trim (embed only the current page's config in
+`window.__INITIAL_STATE__` instead of the whole site's) resolved the wrong page
+under **vite-ssg 28**, which passes the route being pre-rendered as
+`ctx.routePath` (a string) and pushes the router only *after* the app-setup
+callback runs. `extractCurrentRoute()` read `ctx.route` (never set by vite-ssg)
+and fell back to `router.currentRoute` — still vue-router's `START_LOCATION`
+(`/`) at that point, identically on every page. Net effect:
+
+- Sites **without** a custom `404.json` (so `/` resolves to `home`) trimmed
+  every page to **home's** config — small blob and `pagesPartial` set, but the
+  wrong page embedded.
+- Sites **with** a path-less custom `pages/404.json` also default it to `/`,
+  making `/` ambiguous — `resolvePageIdForRoute` returned null and **nothing
+  trimmed**, so the full-site config shipped on every page.
+
+Fixes:
+- `main.js` — `extractCurrentRoute()` resolves `ctx.routePath` through
+  `router.resolve()` (a pure match, no navigation) to recover the real path and
+  `params.locale`. Off-SSG behavior is unchanged (falls back to
+  `router.currentRoute`).
+- `loadConfig.js` — `resolvePageIdForRoute()` no longer treats a path-less
+  `404` page as living at `/` (removing the home/404 collision), and maps the
+  `/404` SSG route to a custom path-less `404` page so it trims too.
+
+Verified on a single-locale site with a custom 404 (every page — incl. home and
+404 — trims to its own config, ~94% smaller hydration blob) and a 15-locale site
+(base and locale-prefixed content pages trim to their own page; previously all
+embedded home). Inert for sites that don't opt into `trimInitialState`.
+
 ## 1.0.0-beta.36
 
 ### `cms-ssg-build` — memory-bounded SSG render (Phase 2: the durable fix)

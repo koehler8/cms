@@ -135,6 +135,21 @@ export function createCmsApp() {
       };
 
       const extractCurrentRoute = () => {
+        // During SSG, vite-ssg passes the route being pre-rendered as a string
+        // on `ctx.routePath` and only pushes the router AFTER this setup fn runs
+        // — so `router.currentRoute` is still vue-router's START_LOCATION ('/')
+        // here, identically on every page. Resolve `routePath` through the router
+        // (a pure match, no navigation) to recover the real path + `params.locale`.
+        // Without this, `resolveCurrentPageId` sees '/' for every route, so the
+        // payload trim targets the wrong page — or, when '/' is ambiguous, none.
+        const routePath = ctx?.routePath;
+        if (typeof routePath === 'string' && routePath) {
+          try {
+            return router.resolve(routePath);
+          } catch {
+            return { path: routePath, params: {} };
+          }
+        }
         if (ctx?.route) {
           return ctx.route;
         }

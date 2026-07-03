@@ -70,8 +70,24 @@ export function resolvePageIdForRoute(config, routePath, localeParam) {
         (typeof p === 'string' ? p : '/').replace(/\/+/g, '/').replace(/\/+$/, '') || '/';
     target = normalize(target);
     const pages = (config && config.pages) || {};
-    const matches = Object.entries(pages).filter(([, data]) => {
-        const pagePath = data && typeof data.path === 'string' && data.path.trim() ? data.path : '/';
+
+    // The SSG pre-renders `/404` from a site's custom `pages/404.json` (mirrors
+    // usePageConfig.selectPage's `/404` → `404` mapping). That page is
+    // conventionally path-less, so it can't be matched by `path` below — map the
+    // route to it directly. It is also deliberately NOT treated as living at `/`
+    // (see the id === '404' guard in the matcher) so it never collides with
+    // `home` there — the collision that otherwise makes `/` ambiguous on any
+    // site shipping a custom 404 page, suppressing the home-page trim.
+    const notFound = pages['404'];
+    const notFoundPathless = notFound && !(typeof notFound.path === 'string' && notFound.path.trim());
+    if (target === '/404' && notFoundPathless) return '404';
+
+    const matches = Object.entries(pages).filter(([id, data]) => {
+        const hasPath = data && typeof data.path === 'string' && data.path.trim();
+        // A page with no explicit `path` conventionally lives at `/` (home). The
+        // SSG-only `404` page is the exception: it is served at `/404`, never `/`.
+        const pagePath = hasPath ? data.path : (id === '404' ? null : '/');
+        if (pagePath === null) return false;
         return normalize(pagePath) === target;
     });
     return matches.length === 1 ? matches[0][0] : null;
