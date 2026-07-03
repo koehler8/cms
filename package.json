@@ -88,13 +88,13 @@
     "dotenv": "^17.2.3",
     "pinia": "^3.0.1",
     "png-to-ico": "^3.0.1",
-    "sharp": "^0.33.5"
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@vue/test-utils": "^2.4.10",
     "happy-dom": "^20.9.0",
     "vitest": "^4.1.6",
-    "vue": "^3.5.34",
+    "vue": "^3.5.39",
     "vue-router": "^5.0.7"
   },
   "engines": {
