@@ -54,6 +54,7 @@
   },
   "bin": {
     "cms-generate-public-assets": "./bin/cms-generate-public-assets.js",
+    "cms-ssg-build": "./bin/cms-ssg-build.js",
     "cms-migrate-image-variants": "./bin/cms-migrate-image-variants.js",
     "cms-validate-themes": "./bin/cms-validate-themes.js",
     "cms-validate-extensions": "./bin/cms-validate-extensions.js",

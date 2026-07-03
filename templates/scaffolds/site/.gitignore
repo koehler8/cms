@@ -3,6 +3,7 @@ node_modules/
 dist/
 .vite/
 .vite-ssg-temp/
+.cms-ssg/
 index.html
 .cms-entry.js
 public/

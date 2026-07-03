@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.0.0-beta.36
+
+### `cms-ssg-build` — memory-bounded SSG render (Phase 2: the durable fix)
+
+The durable fix for the SSG-build heap OOM (see
+[`SSG-MEMORY-PLAN.md`](./SSG-MEMORY-PLAN.md)). vite-ssg renders every route in
+one Node process and leaves a fixed retained cost per route, so peak heap scales
+with total routes (pages × locales) and large sites OOM. This adds an **opt-in**
+`cms-ssg-build` command that renders the routes as **N separate `vite-ssg build`
+processes**, each handling a slice of the routes and writing to its own outDir,
+then merges the shards into `dist/`. Because each shard is its own process,
+memory is reclaimed between shards — **peak heap is bounded by slice size, not
+total route count**, no matter how large the site grows.
+
+Adopt it by pointing `build:ssg` at the new command (and dropping the interim
+`--max-old-space-size=8192` flag, which is no longer needed):
+
+```jsonc
+// package.json
+"build:ssg": "cms-ssg-build"          // was: NODE_OPTIONS=... vite-ssg build
+"build:ssg": "cms-ssg-build --shard-size 150 --heap 2048"  // tunable
+```
+
+Details:
+- **Sequential by default** — one shard live at a time gives the *lowest* peak
+  memory (the whole point) and avoids racing on the plugin's shared site-root
+  writes. `--concurrency` exists but is experimental.
+- **Small sites are unaffected** — when the route count fits in a single shard,
+  it runs one ordinary `vite-ssg build`.
+- **Framework hooks** (env-gated, inert for a normal build): the plugin's
+  `includedRoutes` honors `CMS_SSG_SHARD=k/N` (new pure, unit-tested
+  `applyRouteShard`; `/404` + `/admin` stay in every shard so each emits its own
+  `404.html`), and the client build honors `CMS_SSG_OUTDIR`.
+- **Output fidelity** verified on a real 60-route multi-locale site: the merged
+  `dist/` is identical to a normal build **except** for vite-ssg's own per-run
+  `modulepreload` chunk-selection non-determinism — two ordinary back-to-back
+  `vite-ssg build` runs already differ the same way (same chunks, equivalent
+  selection, nothing dropped). Sharding introduces no additional differences.
+- **Trade-off:** each shard rebuilds the bundle, so the build does more total
+  work than a single run — an acceptable, opt-in cost for the sites large enough
+  to need the bound. A future optimization can build the bundle once and reuse
+  it across shards.
+
 ## 1.0.0-beta.35
 
 ### SSG build memory — Phase 1 mitigations for the per-route heap accumulation

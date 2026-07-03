@@ -17,6 +17,7 @@ import { buildRobotsTxt } from './src/utils/robotsGenerator.js';
 import { buildSitemap, getSitemapUrl } from './src/utils/sitemapGenerator.js';
 import { buildWebAppManifest } from './src/utils/webAppManifest.js';
 import { sha256Hex } from './src/utils/sha256.js';
+import { applyRouteShard } from './src/utils/ssgRoutes.js';
 import {
   computeVariantCacheDir,
   resolveImageVariantConfig,
@@ -539,6 +540,14 @@ export default function cmsPlugin(options = {}) {
         publicDir: path.join(siteRoot, 'public'),
         build: {
           modulePreload: false,
+          // `cms-ssg-build` renders each route shard as a separate build into
+          // its own outDir (e.g. `.cms-ssg/dist-0`), then merges them into
+          // `dist/`. Honor the override for the CLIENT build only — vite-ssg's
+          // SSR build sets its own temp outDir and then imports the server
+          // bundle back from there, so overriding it would break that import.
+          ...(process.env.CMS_SSG_OUTDIR && !(env?.isSsrBuild || userConfig?.build?.ssr)
+            ? { outDir: process.env.CMS_SSG_OUTDIR }
+            : {}),
           rollupOptions: {
             input: tempIndexPath,
             output: {
@@ -590,7 +599,7 @@ export default function cmsPlugin(options = {}) {
           // unmatched URL with HTTP status 404, so this gives sites a
           // proper not-found response without per-site config.
           onFinished() {
-            const distDir = path.join(siteRoot, 'dist');
+            const distDir = path.join(siteRoot, process.env.CMS_SSG_OUTDIR || 'dist');
             const nestedNotFound = path.join(distDir, '404', 'index.html');
             const flatNotFound = path.join(distDir, '404.html');
             if (fs.existsSync(nestedNotFound)) {
@@ -630,7 +639,15 @@ export default function cmsPlugin(options = {}) {
               ...Array.from(staticRoutes),
               ...Array.from(localizedRoutes),
             ];
-            return Array.from(new Set(candidates));
+            const allRoutes = Array.from(new Set(candidates));
+
+            // Opt-in durable memory bound: when `cms-ssg-build` sets
+            // CMS_SSG_SHARD=k/N in the environment, render only this shard's
+            // slice of routes so peak SSG heap is bounded by slice size, not
+            // total route count. Unset (the normal `vite-ssg build` path) →
+            // the full list, byte-identical to before. (applyRouteShard keeps
+            // /404 + /admin in every shard so each can emit its own 404.html.)
+            return applyRouteShard(allRoutes, process.env.CMS_SSG_SHARD);
           },
         },
       };
