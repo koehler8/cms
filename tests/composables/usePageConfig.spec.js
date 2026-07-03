@@ -130,6 +130,72 @@ describe('usePageConfig — synchronous first render (white-flash fix)', () => {
   });
 });
 
+describe('usePageConfig — trimmed (partial) embedded config', () => {
+  let loaderSpy;
+
+  const fullTwoPage = () => ({
+    site: {},
+    shared: { content: {} },
+    pages: {
+      home: { path: '/', components: [{ name: 'Hero', enabled: true }], content: {}, meta: {} },
+      about: { path: '/about', components: [{ name: 'AboutBody', enabled: true }], content: {}, meta: {} },
+    },
+  });
+
+  // What the server embeds when site.trimInitialState is on for the home route:
+  // site + shared + only the home page, flagged partial.
+  const partialHome = () => {
+    const cfg = fullTwoPage();
+    return { site: cfg.site, shared: cfg.shared, pages: { home: cfg.pages.home }, pagesPartial: true };
+  };
+
+  beforeEach(() => {
+    try { localStorage.clear(); } catch { /* no-op */ }
+    loaderSpy = vi.fn();
+    setConfigLoader({ loadConfigData: loaderSpy, availableLocales: ['en'], baseLocale: 'en' });
+  });
+
+  afterEach(() => {
+    try { localStorage.clear(); } catch { /* no-op */ }
+  });
+
+  it('paints the current page synchronously, then background-loads the full config so nav resolves other pages', async () => {
+    primeConfigSync(undefined, partialHome());
+    loaderSpy.mockResolvedValue(fullTwoPage());
+
+    const wrapper = mountPage({ pagePath: '/' });
+
+    // First paint: home renders synchronously from the partial embed (no flash).
+    expect(wrapper.vm.componentKeys.map((c) => c.name)).toEqual(['Hero']);
+
+    // A partial embed triggers one soft background reload of the full config.
+    await flushPromises();
+    await nextTick();
+    expect(loaderSpy).toHaveBeenCalledTimes(1);
+
+    // In-SPA navigation now resolves another page — it would fall through to the
+    // NotFound sentinel if the trimmed config were still the navigation source.
+    await wrapper.setProps({ pagePath: '/about' });
+    await flushPromises();
+    await nextTick();
+    expect(wrapper.vm.componentKeys.map((c) => c.name)).toEqual(['AboutBody']);
+
+    wrapper.unmount();
+  });
+
+  it('does not background-reload when the embed is full (pagesPartial absent)', async () => {
+    primeConfigSync(undefined, fullTwoPage());
+
+    const wrapper = mountPage({ pagePath: '/' });
+    await flushPromises();
+
+    expect(loaderSpy).not.toHaveBeenCalled();
+    expect(wrapper.vm.componentKeys.map((c) => c.name)).toEqual(['Hero']);
+
+    wrapper.unmount();
+  });
+});
+
 describe('config sync cache (primeConfigSync / peekConfigSync)', () => {
   beforeEach(() => {
     setConfigLoader({ loadConfigData: vi.fn(), availableLocales: [], baseLocale: 'en' });

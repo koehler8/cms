@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cloneConfig, mergeConfigTrees, createConfigLoader } from '../../src/utils/loadConfig.js';
+import { cloneConfig, mergeConfigTrees, createConfigLoader, trimConfigToPage, resolvePageIdForRoute } from '../../src/utils/loadConfig.js';
 
 describe('cloneConfig', () => {
   it('deep-clones objects', () => {
@@ -22,6 +22,96 @@ describe('cloneConfig', () => {
     expect(cloneConfig('hello')).toBe('hello');
     expect(cloneConfig(null)).toBeNull();
     expect(cloneConfig(undefined)).toBeUndefined();
+  });
+});
+
+describe('trimConfigToPage', () => {
+  const full = () => ({
+    site: { title: 'X', trimInitialState: true },
+    shared: { content: { header: {} } },
+    pages: {
+      home: { path: '/', content: { a: 1 } },
+      about: { path: '/about', content: { b: 2 } },
+      contact: { path: '/contact', content: { c: 3 } },
+    },
+  });
+
+  it('reduces pages to the named page, preserves site+shared, and marks it partial', () => {
+    const trimmed = trimConfigToPage(full(), 'about');
+    expect(Object.keys(trimmed.pages)).toEqual(['about']);
+    expect(trimmed.pages.about).toEqual({ path: '/about', content: { b: 2 } });
+    expect(trimmed.pagesPartial).toBe(true);
+    expect(trimmed.site).toEqual({ title: 'X', trimInitialState: true });
+    expect(trimmed.shared).toEqual({ content: { header: {} } });
+  });
+
+  it('does not mutate the source config', () => {
+    const src = full();
+    trimConfigToPage(src, 'about');
+    expect(Object.keys(src.pages)).toEqual(['home', 'about', 'contact']);
+    expect(src.pagesPartial).toBeUndefined();
+  });
+
+  it('returns the config untouched when the page id is absent (safe no-op)', () => {
+    const src = full();
+    expect(trimConfigToPage(src, 'nope')).toBe(src);
+    expect(trimConfigToPage(src, '')).toBe(src);
+    expect(trimConfigToPage(src, undefined)).toBe(src);
+  });
+
+  it('returns non-config / page-less inputs unchanged', () => {
+    expect(trimConfigToPage(null, 'home')).toBeNull();
+    expect(trimConfigToPage(['a'], 'home')).toEqual(['a']);
+    const noPages = { site: {} };
+    expect(trimConfigToPage(noPages, 'home')).toBe(noPages);
+  });
+});
+
+describe('resolvePageIdForRoute', () => {
+  const config = {
+    pages: {
+      home: { path: '/' },
+      about: { path: '/about' },
+      contact: { path: '/contact' },
+      guide: { path: '/resources/guide' },
+    },
+  };
+
+  it('matches a base-locale content path (incl. nested)', () => {
+    expect(resolvePageIdForRoute(config, '/about')).toBe('about');
+    expect(resolvePageIdForRoute(config, '/resources/guide')).toBe('guide');
+  });
+
+  it('matches the home route', () => {
+    expect(resolvePageIdForRoute(config, '/')).toBe('home');
+  });
+
+  it('normalizes trailing / duplicate slashes', () => {
+    expect(resolvePageIdForRoute(config, '/about/')).toBe('about');
+    expect(resolvePageIdForRoute(config, '//about')).toBe('about');
+  });
+
+  it('strips a non-base locale prefix before matching', () => {
+    expect(resolvePageIdForRoute(config, '/es/about', 'es')).toBe('about');
+    expect(resolvePageIdForRoute(config, '/es', 'es')).toBe('home'); // locale root → home
+    expect(resolvePageIdForRoute(config, '/es/resources/guide', 'es')).toBe('guide');
+  });
+
+  it('returns null for unknown / 404 / admin routes (keep full config)', () => {
+    expect(resolvePageIdForRoute(config, '/nope')).toBeNull();
+    expect(resolvePageIdForRoute(config, '/admin')).toBeNull();
+    expect(resolvePageIdForRoute(config, '')).toBeNull();
+    expect(resolvePageIdForRoute(config, null)).toBeNull();
+  });
+
+  it('returns null when ambiguous (multiple path-less pages both default to "/")', () => {
+    const ambiguous = { pages: { home: {}, splash: {} } };
+    expect(resolvePageIdForRoute(ambiguous, '/')).toBeNull();
+  });
+
+  it('treats a single path-less page as the "/" match', () => {
+    const cfg = { pages: { home: {}, about: { path: '/about' } } };
+    expect(resolvePageIdForRoute(cfg, '/')).toBe('home');
   });
 });
 

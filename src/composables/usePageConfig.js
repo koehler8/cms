@@ -219,11 +219,20 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
     cachedConfig = primed;
     lastLocaleKey = localeKey;
 
-    // Preserve the saved-locale auto-switch on base-locale routes: the server
-    // has no localStorage, so it rendered the base locale. If a returning
-    // visitor stored a different locale, reconcile AFTER the first paint
-    // (soft = no blank) so that paint still matches the server but the saved
-    // choice is honored.
+    // Decide whether a soft (no blank-out) background reload of the FULL config
+    // is needed after this first synchronous paint. Two independent triggers,
+    // both satisfied by the same single reload:
+    //
+    //  1. Partial embed: the server trimmed the embedded config to just this
+    //     page (site.trimInitialState), so the primed config can't resolve
+    //     OTHER pages for in-SPA navigation. Load the full config now; the
+    //     current page re-applies identically, so there's no visible change.
+    //  2. Saved-locale switch: the server has no localStorage, so a base-locale
+    //     route rendered the base locale. If a returning visitor stored a
+    //     different locale, reconcile to it. (loadConfigData reads localStorage
+    //     when no explicit locale is passed, so the same reload resolves it.)
+    let needsFullReload = Boolean(primed && primed.pagesPartial);
+
     if (localeForConfig === undefined && typeof localStorage !== 'undefined') {
       let stored = '';
       try {
@@ -231,10 +240,12 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
       } catch {
         stored = '';
       }
-      if (stored) {
-        lastLocaleKey = null; // force the reconcile to reload with localStorage resolution
-        syncPage({ soft: true });
-      }
+      if (stored) needsFullReload = true;
+    }
+
+    if (needsFullReload) {
+      lastLocaleKey = null; // force syncPage to reload (localStorage-resolved for base routes)
+      syncPage({ soft: true });
     }
     return true;
   }

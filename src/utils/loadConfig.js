@@ -34,6 +34,49 @@ export function cloneConfig(value) {
     return value;
 }
 
+// Reduce a resolved config's `pages` map to a single page, preserving `site`
+// and `shared` (which every page needs globally). Used by the SSG pass when a
+// site opts into `site.trimInitialState` so each pre-rendered page embeds only
+// its own page config in `window.__INITIAL_STATE__` instead of the entire
+// site's pages (which is byte-identical on every page and can dominate the
+// page weight). Marks the result `pagesPartial: true` so the client knows the
+// embedded config can't resolve other pages and must lazy-load the full config
+// before in-SPA navigation (see usePageConfig.hydrateFromSyncCache). Returns
+// the config untouched when the page id is absent — a safe no-op fallback so a
+// mis-resolved route never trims away the page actually being rendered.
+export function trimConfigToPage(config, pageId) {
+    if (!config || typeof config !== 'object' || Array.isArray(config)) return config;
+    if (!config.pages || typeof config.pages !== 'object') return config;
+    if (!pageId || !Object.prototype.hasOwnProperty.call(config.pages, pageId)) return config;
+    return { ...config, pages: { [pageId]: config.pages[pageId] }, pagesPartial: true };
+}
+
+// Map a route being pre-rendered to its page id, for the SSG trim above.
+// Strips a leading `/{locale}` segment (non-base locales render at
+// `/{locale}/path`), normalizes trailing/duplicate slashes, and matches against
+// each page's `path` (defaulting a path-less page to '/'). Returns the id only
+// on an UNAMBIGUOUS single match — home, path-less, or colliding routes return
+// null so the caller keeps the full config (a safe no-op). Pure/exported so the
+// locale-strip + matching rules are unit-testable without a full SSG build.
+export function resolvePageIdForRoute(config, routePath, localeParam) {
+    if (typeof routePath !== 'string' || !routePath) return null;
+    let target = routePath;
+    if (localeParam && typeof localeParam === 'string') {
+        const prefix = `/${localeParam}`;
+        if (target === prefix) target = '/';
+        else if (target.startsWith(`${prefix}/`)) target = target.slice(prefix.length);
+    }
+    const normalize = (p) =>
+        (typeof p === 'string' ? p : '/').replace(/\/+/g, '/').replace(/\/+$/, '') || '/';
+    target = normalize(target);
+    const pages = (config && config.pages) || {};
+    const matches = Object.entries(pages).filter(([, data]) => {
+        const pagePath = data && typeof data.path === 'string' && data.path.trim() ? data.path : '/';
+        return normalize(pagePath) === target;
+    });
+    return matches.length === 1 ? matches[0][0] : null;
+}
+
 export function mergeConfigTrees(target, source, options = {}) {
     const { cloneTarget = false, skipEmpty = true } = options;
 

@@ -6,7 +6,7 @@ import App from './App.vue';
 import { routes, resolveHistory, applyRouterGuards } from './router/index.js';
 
 import { shouldEnableAnalytics, scheduleAnalyticsLoad } from './utils/cookieConsent.js';
-import { loadConfigData, primeConfigSync } from './utils/loadConfig.js';
+import { loadConfigData, primeConfigSync, trimConfigToPage, resolvePageIdForRoute } from './utils/loadConfig.js';
 import { persistAttributionFromLocation } from './utils/trackingContext.js';
 import { applyThemeVariables } from './themes/themeManager.js';
 import { setActiveThemeKey } from './utils/themeColors.js';
@@ -145,6 +145,18 @@ export function createCmsApp() {
         return null;
       };
 
+      // SSG only: resolve the route being pre-rendered to its page id so the
+      // embedded config can be trimmed to that single page when the site opts
+      // into `site.trimInitialState`. The matching rules live in the pure,
+      // unit-tested resolvePageIdForRoute (returns null on ambiguity → keep the
+      // full config, a safe no-op).
+      const resolveCurrentPageId = (config) => {
+        const route = extractCurrentRoute();
+        const rawPath = typeof route?.path === 'string' ? route.path : '';
+        const localeParam = pickLocaleParam(route?.params?.locale);
+        return resolvePageIdForRoute(config, rawPath, localeParam);
+      };
+
       const loadSiteConfig = async (options = {}) => {
         const requestedLocale =
           pickLocaleParam(options.locale) ??
@@ -178,6 +190,18 @@ export function createCmsApp() {
       if (!isClient) {
         try {
           await loadSiteConfig();
+          // Opt-in payload trim: embed only the current page's config in
+          // window.__INITIAL_STATE__ rather than every page's (the full-site
+          // blob is byte-identical on every page and can dominate page weight).
+          // The rendered HTML body is unaffected — usePageConfig resolves the
+          // SSR render from its own loadConfigData() call, not from
+          // initialState — so this only shrinks the serialized hydration blob.
+          if (initialState.siteConfig?.site?.trimInitialState === true) {
+            const currentPageId = resolveCurrentPageId(initialState.siteConfig);
+            if (currentPageId) {
+              initialState.siteConfig = trimConfigToPage(initialState.siteConfig, currentPageId);
+            }
+          }
         } catch (error) {
           console.error('Failed to load site configuration during SSG build', error);
         }

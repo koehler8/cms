@@ -576,6 +576,14 @@ export default function cmsPlugin(options = {}) {
         },
         ssgOptions: {
           dirStyle: 'nested',
+          // Cap vite-ssg's render pool (default is 20). The SSG pre-render
+          // leaves a fixed retained cost per route (one jsdom document survives
+          // each page inside vite-ssg's loop), so peak heap is dominated by that
+          // accumulation rather than the concurrent batch — but a smaller pool
+          // still trims the transient working set layered on top and makes peak
+          // more predictable on large multi-locale sites. This is a mitigation,
+          // not the bound; see SSG-MEMORY-PLAN.md for the durable fix.
+          concurrency: 8,
           // After vite-ssg pre-renders every route, copy the rendered
           // dist/404/index.html to dist/404.html. AWS Amplify (and most
           // static hosts) auto-serve a top-level 404.html for any

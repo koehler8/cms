@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.0.0-beta.35
+
+### SSG build memory — Phase 1 mitigations for the per-route heap accumulation
+
+Large multi-locale sites began failing the Amplify SSG build with `FATAL ERROR:
+… JavaScript heap out of memory` (exit 134). Profiling traced it to vite-ssg's
+in-process render leaving a fixed retained cost per route (one jsdom document
+survives each page inside vite-ssg's own loop), so peak heap scales with total
+routes = pages × locales. This release ships the low-risk, output-preserving
+mitigations; the durable bound (a sharded/recycled render) is designed in
+[`SSG-MEMORY-PLAN.md`](./SSG-MEMORY-PLAN.md).
+
+**Render concurrency default.** The plugin now sets `ssgOptions.concurrency: 8`
+(vite-ssg defaults to 20). Output is unchanged; a smaller pool trims the
+transient working set layered on top of the per-route accumulation and makes
+peak memory more predictable on large sites.
+
+**Opt-in `site.trimInitialState`.** With `"trimInitialState": true` in
+`site.json`, each pre-rendered page embeds only its **own** page's config in
+`window.__INITIAL_STATE__` instead of every page's. The full-site config blob is
+byte-identical on every page and, on content-heavy sites, can be the majority of
+the page weight (measured at ~213 KB / 81% of a 44-page site's HTML). The
+rendered HTML body is unchanged — the SSR render resolves each page from its own
+`loadConfigData()` call, not from `initialState` — so this only shrinks the
+serialized hydration blob: an SEO/payload win as well as a smaller per-route
+jsdom footprint. **Default is off** (byte-identical to prior output). When on,
+the client lazy-loads the full config in the background after first paint (soft,
+no flash) so in-SPA navigation to other pages still resolves; the current page
+can never be trimmed away (the route→page match falls back to the full config on
+any ambiguity). New helpers `trimConfigToPage` / `resolvePageIdForRoute` in
+`utils/loadConfig` are pure and unit-tested.
+
+**Scaffold heap bridge.** Sites scaffolded via `cms-create-site` now get
+`NODE_OPTIONS=--max-old-space-size=4096` in `build:ssg` as a preventive default,
+so a growing multi-locale site doesn't silently hit Node's ~2 GB ceiling. This
+is a bridge and is intended to be retired once the durable fix lands.
+
 ## 1.0.0-beta.34
 
 ### Fix: language switcher keeps you on the same page
