@@ -1,6 +1,6 @@
 # SSG build out-of-memory — durable framework fix (design doc)
 
-**Status:** Proposal / design only. No framework code, deps, or site config changed by this document.
+**Status:** Phase 0 (stop-loss) ✅ complete · **Phase 1 mitigations ✅ implemented + committed to `cms`** (`1728c5d`/`c7306bd`, pending `beta.35` publish) · Phase 2–3 (the durable bound) designed, not yet built.
 **Scope:** `@koehler8/cms` (currently `1.0.0-beta.34`) SSG pre-render (`vite-ssg build`).
 **Author trigger:** `site-peepoo` (662 routes) and `site-poopee` (~377 routes) began failing the AWS Amplify build with `FATAL ERROR: … JavaScript heap out of memory` (exit 134) on 2026-07-03, two days after both were green.
 **Author:** Claude (investigation session 2026-07-03), grounded in reproduction + heap profiling on `site-peepoo`.
@@ -15,7 +15,7 @@
 - **Not fixable by the cheap knobs.** Empirically: lowering `concurrency` doesn't bound it (accumulation is per-route, not per-batch); disabling `beasties` critical-CSS changes it **0%**; `jsdom.window.close()` removes only **~17%**. Raising the heap / instance size (the current stopgap) only moves the cliff — cost scales linearly with content.
 - **A large, self-inflicted multiplier:** every page embeds `window.__INITIAL_STATE__` = the **entire site config for all pages** — measured at **218 KB, 81 % of each 270 KB page, byte-identical across pages**. That inflates both the on-disk payload (an SEO problem) and the per-route jsdom retention.
 - **Recommendation — two tracks.**
-  - **Track 1 (days, low-risk, also fixes the SEO payload):** trim `__INITIAL_STATE__` to the current page; set a conservative `ssgOptions.concurrency` default; ship a documented heap default as a *temporary bridge* for unmitigated sites. This ~3× the runway but does **not** bound memory.
+  - **Track 1 ✅ shipped (beta.35, committed `c7306bd`) — low-risk, also fixes the SEO payload:** opt-in `site.trimInitialState` embeds only the current page's config in `__INITIAL_STATE__` (default off); `ssgOptions.concurrency` defaulted to 8; the `cms-create-site` scaffold gets a 4 GB heap bridge. ~3× the runway but does **not** bound memory (that's Track 2).
   - **Track 2 (the durable bound):** a framework-owned **build-once + sharded render across recycled child processes** (`cms-ssg-build`). Peak memory becomes `O(shard size)`, **independent of total route count** — the only option that truly bounds. Roll out behind a flag, verify byte-identical output, then retire the `LARGE_16GB` + `NODE_OPTIONS` stopgaps.
 - **Urgent fleet finding — ✅ resolved 2026-07-03:** `site-bang` (~360 routes, beta.34, generates extra pages at build) sat at the same cliff `site-poopee` hit and was unmitigated. Now bridged: Amplify app bumped to `LARGE_16GB`, then `--max-old-space-size=8192` pinned on its `vite-ssg build` step (`8f63144`). `site-poopee` was found already bridged (`6d8bf39`). **Phase 0 (§4.1) is complete** — all three heavy sites now run `LARGE_16GB` + explicit `8192`.
 
@@ -185,10 +185,12 @@ Ship `NODE_OPTIONS=--max-old-space-size=<N>` as the template default and documen
 
 **Two tracks in parallel.** Track 1 de-risks the fleet in days and is independently worth doing; Track 2 is the true bound the brief asks for ("bounds peak memory, not just raises the ceiling").
 
-### Track 1 — Immediate mitigations (days; low risk; also fixes SEO)
-1. **Trim `__INITIAL_STATE__` to the current page** (Option B). Biggest framework-owned lever on the slope, and it removes ~213 KB of duplicate JSON from every page. Guard with SSR/CSR hydration-parity tests and an in-SPA cross-page navigation test.
-2. **Set `ssgOptions.concurrency` to a conservative default** (e.g. 8–12) in [vite-plugin.js](vite-plugin.js). Doesn't bound the leak, but caps the *concurrent* working set so peak is predictable and lower on the heaviest sites. Cheap, output-neutral.
-3. **Bridge only:** ship a documented heap default (Option F) so unmitigated sites (`site-bang`) don't hit a silent cliff before Track 2. Marked for retirement.
+### Track 1 — Immediate mitigations ✅ SHIPPED (beta.35; committed `c7306bd`, pending publish)
+1. **Opt-in `site.trimInitialState`** (Option B), default **off**. Embeds only the current page's config in `__INITIAL_STATE__`. New pure helpers `trimConfigToPage` / `resolvePageIdForRoute` in `utils/loadConfig`; the SSG trim in `main.js`; a client-side background full-config reload in `usePageConfig` so in-SPA nav still resolves other pages; the route→page match falls back to the full config on any ambiguity, so the current page is never trimmed away. **Verified:** 624 unit tests + a real 60-route SSG build showing **byte-identical rendered bodies** across all routes with the blob trimmed (`pagesPartial` flagged) and trim-off byte-identical to prior output.
+2. **`ssgOptions.concurrency: 8`** in [vite-plugin.js](vite-plugin.js) (was vite-ssg's default 20). Output-neutral; caps the concurrent working set.
+3. **Scaffold heap bridge:** `cms-create-site` (`templates/scaffolds/site/package.json`) now emits `NODE_OPTIONS=--max-old-space-size=4096` in `build:ssg`. Bridge only; retired once Track 2 lands. (`site-erea` itself was left untouched — the authoritative template is the scaffold.)
+
+**Remaining roll:** publish `beta.35`; then enable `"trimInitialState": true` in `site.json` on the heavy sites (`site-peepoo`, `site-poopee`, `site-bang`) with a per-site build check — that's where the 81 %/page payload win actually lands. The long tail picks up the (output-neutral) concurrency default automatically on next bump.
 
 ### Track 2 — The durable bound: `cms-ssg-build` sharded/recycled render (Option D)
 - New framework build entry that builds bundles once and renders route-shards in recycled child processes, merging `dist/`. Peak memory `O(K)`, independent of route count.
@@ -219,7 +221,7 @@ A framework change reaches sites only on their **own** dependency bump + redeplo
 
 **Phase 0 — Stop-loss ✅ COMPLETE (2026-07-03; before any framework change).** Applied the Track-1 bridge to **`site-bang`**: bumped Amplify app `d2pmzw52xhoi1f` to `LARGE_16GB`, *then* pinned `--max-old-space-size=8192` on its `vite-ssg build` step (`8f63144`) — instance led the flag per the §2 Option A caveat. **`site-poopee`** was found **already** bridged by a concurrent session (`6d8bf39`: `8192` flag) on top of its existing `LARGE_16GB`; verified on `main`, not duplicated. `site-peepoo` was already mitigated. All three heavy sites now carry `LARGE_16GB` + explicit `8192`.
 
-**Phase 1 — Track 1 lands in the framework (beta.N+1).** Trim `__INITIAL_STATE__` + concurrency default + documented heap bridge. Bump the two heavy multi-locale, already-mitigated sites first (`site-peepoo`, `site-poopee`), then `site-bang`, verify green, then let the long tail pick it up naturally. **Preventive template default:** add the heap-flag bridge to the **`site-erea` template `build:ssg`** now so *new* multi-locale sites don't silently inherit the 2 GB cliff (cheap insurance until Track 2).
+**Phase 1 — Track 1 ✅ IMPLEMENTED (beta.35; committed to `cms` `c7306bd`, pending publish).** Shipped: `ssgOptions.concurrency: 8`, opt-in `site.trimInitialState`, and the scaffold heap bridge in `templates/scaffolds/site/package.json` (the authoritative `cms-create-site` template — `site-erea` was intentionally left untouched). 624 unit tests + a real 60-route build (byte-identical bodies, blob trimmed) verify it. **Remaining roll:** publish `beta.35`; bump the already-mitigated heavy sites (`site-peepoo`, `site-poopee`, `site-bang`) and set `"trimInitialState": true` in each `site.json` with a per-site build check; the long tail picks up the (output-neutral) concurrency default on next bump.
 
 **Phase 2 — Track 2 opt-in (beta.N+2).** `cms-ssg-build` behind a flag. Dogfood on `site-peepoo` (heaviest). Gate on the byte-diff proof (§5). Measure peak memory flat across shard counts.
 
@@ -247,7 +249,7 @@ The claim to prove is **"peak memory is a function of shard size, not total rout
 
 **Risks**
 - **Output fidelity under sharding (highest).** Re-driving vite-ssg's render outside its own `build()` risks subtle drift (preload links, `@unhead/dom` head, beasties, whitespace/formatting, 404 copy). *Mitigation:* reuse vite-ssg's `build()` for the bundle phase; own only the render dispatch; hard byte-diff gate (§5.3); opt-in until proven.
-- **Trimming `initialState` breaks first-navigation UX.** If a site relies on the full config being present at hydration for instant cross-page nav, trimming could add a load hop. *Mitigation:* the config loader already exposes lazy per-locale/per-page loading; verify the SPA path; keep an opt-out (`site.embedFullState: true`) if any site needs the old behavior.
+- **Trimming `initialState` changes first-navigation UX.** ✅ Shipped **opt-in** (`site.trimInitialState`, default off) rather than opt-out — no site is affected until it enables the flag. When on, the client soft-reloads the full config right after first paint so the first cross-page nav resolves, and the current page can never be trimmed away (route→page ambiguity falls back to the full config). *Remaining gate:* the client reload + nav path is unit-tested (mounted component) and the SSR side is build-verified byte-identical, but a **live browser click-through on a trim-enabled heavy site** hasn't been done — make that the per-site enable gate.
 - **Patching a minified dependency (Option E1) is brittle.** Anchors drift across vite-ssg releases. *Mitigation:* prefer D; if E1 is used as interim, make the patch idempotent + version-guarded like the lru-cache patch, and fail loudly if the anchor is missing.
 - **Fleet drift.** Sites bump independently; some may lag on beta.31. *Mitigation:* per-site bump checklist in Phase 3; don't retire a site's stopgap until its sharded build is green.
 - **Parallel shards inflate peak.** Rendering S shards concurrently multiplies peak by S. *Mitigation:* peak = `min(cores, S) × K × per-route`; make pool size and K configurable and set conservative defaults.
