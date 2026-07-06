@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.0.0-beta.39
+
+### Feature: `site.robots.allowAiCrawlers` — durable AI-crawler allow-list in robots.txt
+
+Found while bumping the fleet to beta.38: five consumer sites (site-cityofangels,
+site-coastalcollective, site-jamieaustin, site-ocandme, site-resom) had hand-edited
+`public/robots.txt` with an explicit `Allow: /` block per AI/LLM crawler (GPTBot,
+ClaudeBot, PerplexityBot, CCBot, etc.). `robots.txt` is regenerated from config on
+every `build:ssg`/`generate:public-assets` run (see `writeSeoFiles` in
+`vite-plugin.js`), so those hand edits were silently reverted on the next local
+build — no error, just quiet drift between the committed file and the working tree.
+There was no config path that could express "also allow these crawlers," so the
+only way site authors had to express this intent didn't survive a rebuild.
+
+`buildRobotsTxt` (`src/utils/robotsGenerator.js`) now accepts an opt-in
+`site.robots.allowAiCrawlers` flag. When true, it appends a dedicated block per
+known AI/LLM crawler (grouped: OpenAI/ChatGPT, Anthropic/Claude, Perplexity,
+Common Crawl, Google, Bing, Meta, Diffbot) — each carrying the **same** Disallow
+list as the wildcard `User-agent: *` block, so a named crawler never sees more
+than the default policy already grants (draft paths and `/admin` stay blocked for
+them too). Skipped entirely when `site.draft === true`. Default is off — existing
+sites are unaffected unless they opt in.
+
+Consuming sites should set `"robots.allowAiCrawlers": true` in `site.json` instead
+of hand-editing `public/robots.txt`, and stop tracking that file in git (remove any
+`!public/robots.txt` `.gitignore` exception) — it's build output now, like
+`sitemap.xml` and `manifest.json`.
+
 ## 1.0.0-beta.38
 
 ### Fix: `cms-ssg-build` now fails loudly instead of silently shipping blank pages

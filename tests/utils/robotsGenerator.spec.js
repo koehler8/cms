@@ -100,6 +100,57 @@ describe('buildRobotsTxt', () => {
     expect(tail.slice(1)).toEqual(['Disallow: /apple', 'Disallow: /middle', 'Disallow: /zoo']);
   });
 
+  describe('site.robots.allowAiCrawlers', () => {
+    it('is off by default — no named crawler blocks appear', () => {
+      const out = buildRobotsTxt({ site: {}, pages: {} });
+      expect(out).not.toContain('GPTBot');
+      expect(out).not.toContain('User-agent: ClaudeBot');
+    });
+
+    it('emits a dedicated block per known AI/LLM crawler when enabled', () => {
+      const out = buildRobotsTxt({ site: { robots: { allowAiCrawlers: true } }, pages: {} });
+      for (const agent of [
+        'GPTBot',
+        'OAI-SearchBot',
+        'ChatGPT-User',
+        'anthropic-ai',
+        'ClaudeBot',
+        'PerplexityBot',
+        'CCBot',
+        'Googlebot',
+        'Googlebot-Extended',
+        'Bingbot',
+        'FacebookBot',
+        'Diffbot',
+      ]) {
+        expect(out).toContain(`User-agent: ${agent}`);
+      }
+    });
+
+    it('gives each named crawler the same Disallow list as the wildcard block', () => {
+      const out = buildRobotsTxt({
+        site: { robots: { allowAiCrawlers: true }, draftPaths: ['/hidden'] },
+        pages: { secret: { path: '/secret', draft: true } },
+      });
+      const blocks = out.split(/\n\n+/);
+      const claudeBlock = blocks.find((b) => b.includes('User-agent: ClaudeBot'));
+      expect(claudeBlock).toContain('Disallow: /admin');
+      expect(claudeBlock).toContain('Disallow: /hidden');
+      expect(claudeBlock).toContain('Disallow: /secret');
+    });
+
+    it('is skipped entirely when the whole site is in draft', () => {
+      const out = buildRobotsTxt({ site: { draft: true, robots: { allowAiCrawlers: true } }, pages: {} });
+      expect(out).not.toContain('GPTBot');
+      expect(out).toContain('Disallow: /');
+    });
+
+    it('defaults to off when site.robots is absent', () => {
+      const out = buildRobotsTxt({ site: { draftPaths: ['/blog'] }, pages: {} });
+      expect(out).not.toContain('User-agent: GPTBot');
+    });
+  });
+
   // Regression guard for the 2026-06-09 fleet-wide Search Console event: the
   // framework was disallowing /privacy, /terms, /cookies while sitemap.xml
   // listed those same pages — every site told Google "index these" and "don't

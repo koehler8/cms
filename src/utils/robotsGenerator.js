@@ -15,6 +15,16 @@
  *   - "Disallow: <prefix>" for each entry in site.draftPaths
  *   - "Disallow: <path>" for each page with draft === true
  *
+ * site.robots.allowAiCrawlers (opt-in, default off): appends a dedicated block
+ * per known AI/LLM crawler (GPTBot, ClaudeBot, PerplexityBot, CCBot, etc.),
+ * each carrying the exact same Disallow list as the wildcard block — i.e.
+ * identical effective access, just declared explicitly per bot. Several sites
+ * were hand-editing this list directly into public/robots.txt; since that file
+ * is regenerated on every build, the hand edits were silently reverted on the
+ * next `build:ssg`/`generate:public-assets` run. This option makes the
+ * customization durable. Skipped entirely when site.draft === true — a
+ * pre-launch site shouldn't explicitly invite crawlers.
+ *
  * If sitemapUrl is provided, appends a "Sitemap: <url>" line.
  */
 
@@ -22,18 +32,27 @@ import { normalizeDraftPath } from './draftMode.js';
 
 const FRAMEWORK_DEFAULTS = ['/admin'];
 
+// Order/grouping mirrors the hand-rolled lists sites had converged on before
+// this became a config option.
+const AI_CRAWLER_GROUPS = [
+  { comment: 'OpenAI / ChatGPT', agents: ['GPTBot', 'OAI-SearchBot', 'ChatGPT-User'] },
+  { comment: 'Anthropic / Claude', agents: ['anthropic-ai', 'ClaudeBot'] },
+  { comment: 'Perplexity', agents: ['PerplexityBot'] },
+  { comment: 'Common Crawl (used by many LLM training datasets)', agents: ['CCBot'] },
+  { comment: 'Google', agents: ['Googlebot', 'Googlebot-Extended'] },
+  { comment: 'Microsoft / Bing', agents: ['Bingbot'] },
+  { comment: 'Meta', agents: ['FacebookBot'] },
+  { comment: 'Diffbot', agents: ['Diffbot'] },
+];
+
 export function buildRobotsTxt(siteConfig, sitemapUrl = '') {
-  const lines = ['User-agent: *'];
-
-  for (const p of FRAMEWORK_DEFAULTS) {
-    lines.push(`Disallow: ${p}`);
-  }
-
   const site = siteConfig?.site || {};
   const pages = siteConfig?.pages || {};
 
+  const disallows = [...FRAMEWORK_DEFAULTS];
+
   if (site.draft === true) {
-    lines.push('Disallow: /');
+    disallows.push('/');
   } else {
     const additional = new Set();
 
@@ -51,7 +70,25 @@ export function buildRobotsTxt(siteConfig, sitemapUrl = '') {
     }
 
     for (const p of Array.from(additional).sort()) {
-      lines.push(`Disallow: ${p}`);
+      disallows.push(p);
+    }
+  }
+
+  const lines = ['User-agent: *'];
+  for (const d of disallows) {
+    lines.push(`Disallow: ${d}`);
+  }
+
+  if (site.robots?.allowAiCrawlers === true && site.draft !== true) {
+    for (const group of AI_CRAWLER_GROUPS) {
+      lines.push('');
+      lines.push(`# ${group.comment}`);
+      for (const agent of group.agents) {
+        lines.push(`User-agent: ${agent}`);
+        for (const d of disallows) {
+          lines.push(`Disallow: ${d}`);
+        }
+      }
     }
   }
 
