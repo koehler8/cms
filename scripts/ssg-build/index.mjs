@@ -26,6 +26,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { findEmptyRenders } from './findEmptyRenders.mjs';
 
 const CWD = process.cwd();
 const TAG = '[cms-ssg-build]';
@@ -157,6 +158,14 @@ async function main() {
     console.log(`${TAG} ~${estRoutes} routes ≤ shard size ${opts.shardSize}: running a single vite-ssg build (no sharding needed).`);
     const r = await runViteSsg({ heap: opts.heap, passthrough: opts.passthrough });
     process.stdout.write(r.out);
+    if (r.code === 0) {
+      const empties = await findEmptyRenders(path.join(CWD, 'dist'));
+      if (empties.length) {
+        console.error(`${TAG} build succeeded but ${empties.length} page(s) rendered with an empty body — a known intermittent SSR race (see findEmptyRenders in this file). Re-run the build:`);
+        for (const f of empties) console.error(`${TAG}   - ${f}`);
+        process.exit(1);
+      }
+    }
     process.exit(r.code);
   }
 
@@ -175,7 +184,20 @@ async function main() {
     const started = Date.now();
     process.stdout.write(`${TAG} shard ${s.k + 1}/${N} rendering…\n`);
     const r = await runViteSsg({ shard: `${s.k}/${N}`, outDir: s.outDir, heap: opts.heap, passthrough: opts.passthrough });
-    process.stdout.write(`${TAG} shard ${s.k + 1}/${N} ${r.code === 0 ? 'ok' : 'FAILED'} (${((Date.now() - started) / 1000).toFixed(1)}s)\n`);
+    let empties = [];
+    if (r.code === 0) {
+      empties = await findEmptyRenders(path.join(CWD, s.outDir));
+    }
+    const ok = r.code === 0 && empties.length === 0;
+    process.stdout.write(`${TAG} shard ${s.k + 1}/${N} ${ok ? 'ok' : 'FAILED'} (${((Date.now() - started) / 1000).toFixed(1)}s)\n`);
+    if (empties.length) {
+      return {
+        ...r,
+        code: 1,
+        out: `${r.out}\n${TAG} ${empties.length} page(s) rendered with an empty body — a known intermittent SSR race (see findEmptyRenders in this file):\n${empties.map((f) => `  - ${f}`).join('\n')}\n`,
+        k: s.k,
+      };
+    }
     return { ...r, k: s.k };
   });
 

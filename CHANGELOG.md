@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.0.0-beta.38
+
+### Fix: `cms-ssg-build` now fails loudly instead of silently shipping blank pages
+
+Found while investigating a report that one component (`PpFollowCta` on
+site-poopee) wasn't rendering: the real bug was much bigger. On two separate
+clean `npm run build:ssg` runs, **every page on the site** rendered as an
+empty `<div id="app" data-server-rendered="true"><!----></div>` — no
+warnings, no errors, exit code 0. The reported "one component is broken"
+symptom was just the first thing someone happened to grep for; nothing on
+the page had rendered.
+
+Root cause is in Vue's own SSR renderer, not this codebase:
+`@vue/server-renderer`'s `renderComponentVNode` gates a component's render on
+`Promise.all(prefetches).catch(shared.NOOP)` — if the `onServerPrefetch` hook
+(used by `usePageConfig`'s `syncPage()` to resolve page content during SSG)
+ever rejects, the rejection is silently discarded and the renderer proceeds
+to render the component anyway, using whatever default/empty reactive state
+it held at that point. This is a rare, timing-sensitive condition (roughly
+2 failures in ~30 build attempts while reproducing it) that intermittent —
+sharding, concurrency, and `site.trimInitialState` were all investigated as
+possible correlating factors, but none could be confirmed as the sole
+trigger despite extensive bisection.
+
+Rather than chase a non-deterministic upstream race further, `cms-ssg-build`
+now verifies its own output: after every shard (and the single-build
+fallback path for small sites), it scans the rendered HTML for the exact
+empty-root signature and fails the build immediately, printing every
+affected route, if any page comes out blank. A successful build now means
+the pages are actually populated, not just that no exception was thrown.
+Consuming sites don't need to change anything — the check runs automatically
+as part of the existing `cms-ssg-build` command. If it ever fires, re-running
+the build is the correct next step (the failure has not reproduced twice in
+a row in any testing so far).
+
+New: `scripts/ssg-build/findEmptyRenders.mjs` (pure, unit-tested; split out
+from `index.mjs` specifically so it doesn't trip `index.mjs`'s top-level
+`main()` invocation — see `bin/cms-ssg-build.js` — when imported for testing
+or reuse).
+
 ## 1.0.0-beta.37
 
 ### Fix: `site.trimInitialState` now trims each page to its **own** config
