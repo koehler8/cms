@@ -2,7 +2,7 @@
 
 ## What This Project Is
 
-Vertex CMS (`@koehler8/cms`) — a lightweight, config-driven Vue 3 framework published as an npm package to GitHub Packages. Consuming sites import the Vite plugin and provide a `site/` directory with JSON config and assets — no application code needed.
+Vertex CMS (`@koehler8/cms`) — a lightweight, config-driven Vue 3 framework published to the public npm registry (`registry.npmjs.org`). Consuming sites import the Vite plugin and provide a `site/` directory with JSON config and assets — no application code needed.
 
 ## Architecture
 
