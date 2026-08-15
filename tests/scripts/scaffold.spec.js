@@ -180,7 +180,8 @@ describe('runScaffold (site)', () => {
 
     const pkg = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8'));
     expect(pkg.name).toBe('@koehler8/site-orange-county');
-    expect(pkg.dependencies['@koehler8/cms']).toMatch(/beta/);
+    // Stable-range pin: scaffolded sites must never start on a prerelease.
+    expect(pkg.dependencies['@koehler8/cms']).toBe('^1.0.0');
     expect(pkg.engines.node).toMatch(/20\.19/);
 
     const siteJson = JSON.parse(await readFile(path.join(dir, 'site/content/en/site.json'), 'utf8'));
