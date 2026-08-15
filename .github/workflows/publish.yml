@@ -6,14 +6,41 @@ on:
       - 'v*'
 
 jobs:
-  publish:
+  # Quality gate: the tag must match package.json, and the suite must be green,
+  # before anything reaches the registry. A red tree or a mis-tagged commit
+  # fails here instead of publishing.
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
+
+      - name: Assert tag matches package.json version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ "v${VERSION}" != "${GITHUB_REF_NAME}" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version v${VERSION}"
+            exit 1
+          fi
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Test
+        run: npm test
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
           registry-url: 'https://registry.npmjs.org'
 
       - name: Publish
