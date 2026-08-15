@@ -16,6 +16,6 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@koehler8/cms": "^1.0.0-beta.1"
+    "@koehler8/cms": "^1.0.0"
   }
 }

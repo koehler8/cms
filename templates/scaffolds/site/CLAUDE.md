@@ -40,7 +40,7 @@ If you find yourself writing a component that conceptually belongs in a "regions
 
 ## Stack at a glance
 
-- `@koehler8/cms` ^1.0.0-beta.15+ — Vue 3 + vite-ssg framework
+- `@koehler8/cms` ^1.0.0 — Vue 3 + vite-ssg framework
 - `@koehler8/cms-ext-compliance` — cookie banner / legal pages (registered by default)
 - `[site/components/](site/components/)` — auto-globbed Vue files for one-off custom UI specific to this site. **The default home for new components.**
 - `[themes/](themes/)`, `[extensions/](extensions/)` — currently empty. Add via the `cms-create-{theme,extension}` CLIs above.

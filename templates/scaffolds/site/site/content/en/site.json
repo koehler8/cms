@@ -2,6 +2,9 @@
   "description": "",
   "googleId": "",
   "supportEmail": "",
+  "theme": "",
   "title": "__DISPLAY_NAME__",
+  "trailingSlash": true,
+  "trimInitialState": true,
   "url": ""
 }
