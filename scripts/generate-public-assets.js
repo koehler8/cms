@@ -83,6 +83,37 @@ function luminance({ r, g, b }) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+const FALLBACK_COLOR_PAIRS = [
+  ['#ffffff', '#000000'],
+  ['#000000', '#ffffff'],
+  ['#ff0000', '#ffffff'],
+  ['#0000ff', '#ffffff'],
+  ['#008000', '#ffffff'],
+  ['#ffff00', '#000000'],
+  ['#ff00ff', '#000000'],
+  ['#00ffff', '#000000'],
+  ['#1e90ff', '#ffffff'],
+  ['#ff8c00', '#000000'],
+  ['#4b0082', '#ffffff'],
+  ['#32cd32', '#000000'],
+  ['#8b0000', '#ffffff'],
+  ['#ffd700', '#000000'],
+  ['#ff69b4', '#000000'],
+  ['#2f4f4f', '#ffffff']
+];
+
+// Deterministic per-site pick: the same title always yields the same pair,
+// so generated assets keep their colors across deploys (public/ is rebuilt
+// on every build).
+function getStableColorPair(seed) {
+  const s = String(seed || '');
+  let hash = 5381;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash * 33) ^ s.charCodeAt(i)) >>> 0;
+  }
+  return FALLBACK_COLOR_PAIRS[hash % FALLBACK_COLOR_PAIRS.length];
+}
+
 // Try to register a professional-looking font if available
 function tryRegisterFonts() {
   const candidates = [
@@ -336,44 +367,16 @@ async function generateFavicon() {
     shouldGenerateOg = true;
   }
 
-  const providedFavicon = resolveSiteAssetFile(['favicon.ico']);
-  if (providedFavicon) {
-    fs.copyFileSync(providedFavicon, icoPath);
-    console.log(`✅ Found existing favicon; copied from ${providedFavicon}`);
-    return;
-  }
-
-  console.log(`Generating favicon.ico using letter "${letter}" from site "${siteTitle}"`);
-
-  function getRandomColorPair() {
-    const colors = [
-      ['#ffffff', '#000000'],
-      ['#000000', '#ffffff'],
-      ['#ff0000', '#ffffff'],
-      ['#0000ff', '#ffffff'],
-      ['#008000', '#ffffff'],
-      ['#ffff00', '#000000'],
-      ['#ff00ff', '#000000'],
-      ['#00ffff', '#000000'],
-      ['#1e90ff', '#ffffff'],
-      ['#ff8c00', '#000000'],
-      ['#4b0082', '#ffffff'],
-      ['#32cd32', '#000000'],
-      ['#8b0000', '#ffffff'],
-      ['#ffd700', '#000000'],
-      ['#ff69b4', '#000000'],
-      ['#2f4f4f', '#ffffff']
-    ];
-    return colors[Math.floor(Math.random() * colors.length)];
-  }
-
   let bg = process.env.FAVICON_BG;
   let fg = process.env.FAVICON_FG;
 
   if (!bg || !fg) {
-    [bg, fg] = getRandomColorPair();
+    [bg, fg] = getStableColorPair(siteTitle);
   }
 
+  // The fallback og-image must generate before the provided-favicon early
+  // return: socialMeta emits og:image → /og-image.jpg on every page, so a
+  // site that ships its own favicon.ico but no og-image still needs one.
   if (shouldGenerateOg) {
     try {
       const ogBuffer = renderOgImageBuffer(siteTitle, { width: 1200, height: 630, bg, fg });
@@ -383,6 +386,15 @@ async function generateFavicon() {
       console.error(`❌ Failed to generate fallback OpenGraph image`, err);
     }
   }
+
+  const providedFavicon = resolveSiteAssetFile(['favicon.ico']);
+  if (providedFavicon) {
+    fs.copyFileSync(providedFavicon, icoPath);
+    console.log(`✅ Found existing favicon; copied from ${providedFavicon}`);
+    return;
+  }
+
+  console.log(`Generating favicon.ico using letter "${letter}" from site "${siteTitle}"`);
 
   const sizes = [256, 128, 64, 48, 32, 16];
   const pngBuffers = sizes.map((s) => renderLetterPng(letter, s, { bg, fg }));
