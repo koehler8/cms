@@ -55,8 +55,10 @@ npm run dev                    # Not applicable — this is a library
 npm test                       # Run full test suite (Vitest)
 npm run test:watch             # Run tests in watch mode
 npm run test:coverage          # Run tests with coverage report
-npx cms-validate-themes        # Validate theme manifests
-npx cms-validate-extensions    # Validate extension manifests
+npx cms-validate-themes        # Validates the framework's own bundled theme manifests only
+npx cms-validate-extensions    # Validates the framework's own bundled manifests only — its
+                               # --site-dir flag is parsed but never read (review finding F2);
+                               # do not advertise either as site validation until reworked
 ```
 
 ## Testing
@@ -214,4 +216,4 @@ For example, on an English-base site: `Source: /en/<*>  Target: /<*>  Status: 30
 
 - **No pre-bundling for vue/vue-router/pinia**: These are excluded from Vite's optimizer to prevent duplicate module instances when extensions are linked.
 - **cookieConsent analytics default**: `shouldEnableAnalytics()` returns true when consent is pending (analytics load before explicit consent). See the GDPR note in that file.
-- **canvas dependency**: Required for `generate-public-assets` (PNG/ICO generation). Needs system libs (cairo, pango, etc.) — see CI workflow for apt packages.
+- **canvas dependency**: Required only by `generate-public-assets` (PNG/ICO generation); native module needing system libs (cairo, pango, etc.) on platforms without prebuilds. Candidate for optionalDependencies at/after v1 (review R8).

@@ -18,16 +18,25 @@ When extending or theming, **don't regress AA**. See the "Accessibility" section
 ```
 my-site/
   site/
-    config/
-      site.json        # Site metadata and settings
-      shared.json      # Shared content blocks
-      pages/
-        home.json      # Per-page content
-    assets/            # Images and media
-    style.css          # Site-specific overrides (optional)
+    content/
+      content.config.json    # { "baseLocale": "en" }
+      en/
+        site.json            # Site metadata and settings
+        shared.json          # Shared content blocks
+        pages/
+          home.json          # Per-page content
+    assets/img/              # Images and media
+    components/              # Site-local Vue components (optional)
+    style.css                # Site-specific overrides (optional)
   .env
   package.json
   vite.config.js
+```
+
+Or scaffold all of it in one step:
+
+```bash
+npx --package @koehler8/cms@^1.0.0-beta cms-create-site my-site
 ```
 
 ### 2. Install
@@ -58,10 +67,14 @@ export default {
 ### 4. Run
 
 ```bash
-npm run dev       # Development server
-npm run build     # Production build
-vite-ssg build    # Static site generation
+npm run dev        # Development server
+npm run build      # Production build (SPA)
+npx cms-ssg-build  # Static site generation — memory-bounded shards + blank-page gate
 ```
+
+(`vite-ssg build` also works directly, but `cms-ssg-build` wraps it with a
+bounded heap, route sharding for large sites, and a post-render check that
+fails the build if any page comes out blank.)
 
 ## Plugin Options
 
@@ -118,10 +131,10 @@ Each extension has an `extension.config.json` manifest defining:
 - **assets** -- CSS and static file references
 - **dependencies** -- Required npm packages
 
-Validate extension manifests with:
+The manifest JSON Schema ships with the package — point your editor or JSON-schema tooling at it:
 
-```bash
-npx cms-validate-extensions --site-dir ./site
+```json
+{ "$schema": "node_modules/@koehler8/cms/extensions/manifest.schema.json" }
 ```
 
 ## Built-in Components
@@ -163,6 +176,27 @@ npx cms-validate-extensions --site-dir ./site
 | `useLazyImage` | Lazy image loading with IntersectionObserver |
 | `usePromoBackgroundStyles` | Promo section background styling |
 
+## Draft Mode
+
+Pages can be gated behind a site-wide password before launch: `"draft": true`
+on a page, `"draftPaths": [...]` prefixes, or `"draft": true` site-wide in
+`site.json`, with the password in `"draftPassword"`. The build replaces the
+plaintext password with a SHA-256 hash (plaintext never ships), gated pages
+render only the password gate in the SSG HTML, are marked `noindex`, and are
+omitted from `sitemap.xml`.
+
+**Know what the gate is — and isn't.** Draft mode is a pre-launch
+convenience, not access control:
+
+- The password hash ships in the public bundle (unsalted SHA-256 — a weak or
+  guessable password is trivially recoverable).
+- The gated page's `content.*` keys still ship in the page's hydration JSON
+  so Vue can mount after unlock — a determined reader can parse them out of
+  the HTML without the password.
+
+For genuinely confidential content (NDA material, unannounced listings),
+don't put it in the page JSON until launch.
+
 ## Testing
 
 The framework uses [Vitest](https://vitest.dev/) with happy-dom for unit testing.
@@ -178,34 +212,60 @@ Tests live in `tests/` mirroring the source structure (`tests/utils/`, `tests/co
 ## CLI Commands
 
 ```bash
+# Scaffold a new site / theme / extension
+npx cms-create-site my-site
+npx cms-create-theme my-theme
+npx cms-create-extension my-extension
+
+# Static site generation (memory-bounded shards + blank-page gate)
+npx cms-ssg-build
+
 # Generate favicon.ico, logo.png, og-image.jpg from source assets
 npx cms-generate-public-assets --site-dir ./site
-
-# Validate theme manifests
-npx cms-validate-themes
-
-# Validate extension manifests
-npx cms-validate-extensions --site-dir ./site
 ```
+
+`cms-validate-themes` / `cms-validate-extensions` also ship, but currently
+validate only the framework's own bundled manifests — they do not yet
+inspect a consuming site's `themes/` or `extensions/` directories.
 
 ## Exports
 
+The supported public API surface — these specifiers are covered by semver:
+
 ```js
-import cmsPlugin from '@koehler8/cms/vite';           // Vite plugin
+// Build integration
+import cmsPlugin from '@koehler8/cms/vite';            // Vite plugin
 import { createCmsApp } from '@koehler8/cms/app';      // App factory
+
+// Utils commonly used by site components and extensions
 import { loadConfigData } from '@koehler8/cms/utils/loadConfig';
 import { resolveAsset, resolveMedia } from '@koehler8/cms/utils/assetResolver';
 import { useResponsiveImage } from '@koehler8/cms/utils/imageSources';
-// ... and all other utils/*, composables/*, components/*, etc.
+import { trackEvent } from '@koehler8/cms/utils/analytics';
+import { hasAcceptedConsent } from '@koehler8/cms/utils/cookieConsent';
+import { formatTokenAmount } from '@koehler8/cms/utils/formatNumber';
+import { resolveThemeColor } from '@koehler8/cms/utils/themeColors';
+
+// Bundled components and composables (by file)
+import Header from '@koehler8/cms/components/Header.vue';
+import { useComingSoonConfig } from '@koehler8/cms/composables/useComingSoonConfig';
 ```
+
+The extension manifest schema is exported at
+`@koehler8/cms/extensions/manifest.schema.json`.
+
+Other `utils/*`, `composables/*`, `components/*`, `themes/*`, and
+`extensions/*` deep imports resolve too, but anything not listed above is
+**internal** — it may move or change between minor versions.
 
 ## Environment Variables
 
 | Variable | Used By | Description |
 |----------|---------|-------------|
 | `VITE_SHOW_COOKIE_BANNER` | cookieConsent | Enable cookie consent banner |
+| `VITE_APP_VERSION` | appInfo | Override the framework version string reported in the bundle |
 | `CMS_SITE_DIR` | generate-public-assets | Site directory path (build scripts) |
-| `FAVICON_BG` / `FAVICON_FG` | generate-public-assets | Favicon background/foreground colors |
+| `FAVICON_BG` / `FAVICON_FG` | generate-public-assets | Fallback favicon/og colors (default: stable per-title pair) |
 
 ## License
 
