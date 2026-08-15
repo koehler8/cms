@@ -53,3 +53,10 @@ Boundaries — defects only, proposals are the product agent's lane. Don't re-fi
 visible on the repo's Actions tab if a release just happened and Chris is watching it. Severity
 asymmetry: broken publish or red main = high; a stale CHANGELOG line or a doc drift = low —
 investigate hard, file conservatively. Zero findings on a healthy day is the expected outcome.
+
+## Coverage block
+
+Every run — including a healthy zero-findings day — must close with a coverage block: mark
+each source this brief covers as covered, and state the window or through-timestamp
+inspected. Emit this on every run, not only when a priority-level finding turns up —
+reporting coverage does not require or fabricate a finding, even on a quiet, healthy sweep.

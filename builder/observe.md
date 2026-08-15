@@ -51,3 +51,12 @@ executables on this host are exactly the release levers — the publish trigger,
   never findings.
 - Severity asymmetry: broken publish / red main = high; a stale CHANGELOG line = low.
   Default to silence; a healthy framework produces zero findings.
+
+## Coverage block
+
+Every run — including a healthy run with zero findings — must close with a coverage block:
+mark each configured source (the clone, the npm registry, and GitHub Actions; note when the
+consumer-blast-radius check in source 4 was skipped because no bad beta was suspected) as
+covered, and state the window or through-timestamp this pass inspected. Emit this on every
+run, not only when something is found — reporting a source covered does not require or
+fabricate a finding, even when the sweep is quiet and finds nothing.
