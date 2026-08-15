@@ -1,5 +1,93 @@
 # Changelog
 
+## 1.0.0 (unreleased)
+
+First stable release. The changes below are the release-readiness batch from
+the 2026-08-15 architecture review (`ARCHITECTURE-REVIEW.md`); the review's
+remaining phases (breaking-window items, 1.0.x stabilization) land separately.
+
+### Release pipeline: publishing is now gated
+
+The `Publish to npm` workflow previously ran zero checks — any `v*` tag
+shipped whatever the tree held, and a tag that didn't match `package.json`
+silently published the stale version. Publishing now requires a green test
+job (`npm ci --ignore-scripts` + full Vitest suite) and an exact
+tag↔`package.json` version match, on the Node version from `.nvmrc`.
+
+### Removed: obsolete consumer-install machinery
+
+- **`postinstall` lru-cache patch deleted.** Upstream fixed the top-level
+  await the patch existed to strip (verified across every installed copy in
+  this repo and the consumer fleet: 10.4.3 / 11.3.x are clean). The patch was
+  pure liability: an unguarded `JSON.parse` walk over `node_modules` on every
+  consumer install, and a breakage under `--ignore-scripts` CI policies.
+  Consumers on current lockfiles need no changes.
+- **`cms-migrate-image-variants` removed** — the one-time beta.26→27
+  migration completed fleet-wide, and run after 1.0 it would have written
+  `^1.0.0-beta.27` back into a consumer's package.json (a downgrade).
+- **`scripts/migrate-to-content-dirs.mjs` removed** (one-time `site/config/`
+  → `site/content/` migration, long completed).
+- **`scripts/check-overflow.mjs` removed** — imported `playwright`, which was
+  never a dependency; dead on arrival for any installer.
+
+### Exports map curated (the 1.0 semver surface)
+
+- Removed `./plugins/*` (pointed at a directory that doesn't exist),
+  `./router`, and `./constants/*` (zero consumers fleet-wide).
+- Added `./extensions/manifest.schema.json` so extension configs can
+  reference the schema through the package instead of raw `node_modules`
+  paths.
+- README now documents the supported specifier list; deep imports beyond it
+  are declared internal.
+
+### Scaffolds brought to release state
+
+- `@koehler8/cms` pins: `^1.0.0` across the site/theme/extension templates
+  (site was 24 betas stale).
+- `build:ssg` now runs `cms-ssg-build` (bounded heap, sharding, blank-page
+  gate) instead of raw `vite-ssg build` behind a `NODE_OPTIONS` bandaid.
+- Template `site.json` ships `"trimInitialState": true` and
+  `"trailingSlash": true` — new sites have no legacy payload or URL shape to
+  preserve — plus an empty `"theme"` key for discoverability.
+- `.env.example` loses the web3 leftovers (`VITE_REGISTRY_ADDRESS`,
+  `VITE_RPC_READ`, `VITE_REOWN_PROJECT_ID`); documents `VITE_APP_VERSION`.
+
+### `cms-generate-public-assets` fixes
+
+- A site providing its own `site/favicon.ico` but no og-image now still gets
+  a generated `public/og-image.jpg` (previously the provided-favicon early
+  return skipped og generation entirely, while every page's `og:image` meta
+  kept pointing at the missing file).
+- Fallback favicon/og colors are now a stable hash of the site title instead
+  of `Math.random()` — no more brand favicon changing color on every deploy.
+  `FAVICON_BG`/`FAVICON_FG` still override.
+
+### Packaging & docs
+
+- `engines.npm` relaxed to `>=10.8.0` for the published package (the strict
+  10.8 pin remains fleet discipline via `.nvmrc`; external consumers on npm
+  11 no longer get `EBADENGINE` warnings).
+- `CHANGELOG.md` now ships in the npm tarball.
+- README: current `site/content/{locale}/` layout in Quick Start,
+  `cms-ssg-build` as the documented SSG path, an honest note that the
+  validate CLIs currently only check the framework's own bundled manifests,
+  and a Draft Mode section stating the gate's security posture (unsalted
+  SHA-256 hash in the bundle, content in hydration JSON — pre-launch
+  convenience, not access control).
+
+### Remaining before the v1.0.0 tag (release-day mechanics)
+
+- [ ] Release `@koehler8/cms-ext-compliance` 1.0.0 and bump the site
+      scaffold's pin (currently `^1.0.0-beta.4`).
+- [ ] Update the README install line from `@koehler8/cms@^1.0.0-beta` to
+      `@koehler8/cms@^1.0.0` together with `tests/docs/readme.spec.js`
+      (which currently asserts the beta-range convention).
+- [ ] `npm version 1.0.0 --no-git-tag-version`, finalize this entry, tag
+      `v1.0.0`, push — then verify `npm dist-tag ls` shows `latest: 1.0.0`
+      (latest has been frozen at `1.0.0-beta.5`, the first-ever publish).
+- [ ] Note: `1.0.0-beta.1`–`beta.4` were never published to npm;
+      `beta.5`–`beta.7` were published without changelog entries.
+
 ## 1.0.0-beta.39
 
 ### Feature: `site.robots.allowAiCrawlers` — durable AI-crawler allow-list in robots.txt

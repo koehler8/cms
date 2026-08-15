@@ -65,7 +65,8 @@
     "templates",
     "bin",
     "vite-plugin.js",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "peerDependencies": {
     "@vitejs/plugin-vue": "^6.0.0",
