@@ -12,6 +12,12 @@ export default defineConfig({
     globals: true,
     include: ['tests/**/*.spec.js'],
     setupFiles: ['tests/helpers/setup.js'],
+    coverage: {
+      provider: 'v8',
+      include: ['src/**', 'scripts/**', 'vite-plugin.js'],
+      exclude: ['scripts/patch-lru-cache-tla.js'],
+      reporter: ['text', 'html'],
+    },
   },
   resolve: {
     alias: {
