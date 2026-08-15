@@ -23,7 +23,6 @@
     "config-driven"
   ],
   "scripts": {
-    "postinstall": "node scripts/patch-lru-cache-tla.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

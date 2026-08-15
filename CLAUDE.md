@@ -55,7 +55,6 @@ npm run dev                    # Not applicable — this is a library
 npm test                       # Run full test suite (Vitest)
 npm run test:watch             # Run tests in watch mode
 npm run test:coverage          # Run tests with coverage report
-npm run postinstall            # Patches lru-cache TLA for Node 20 compat
 npx cms-validate-themes        # Validate theme manifests
 npx cms-validate-extensions    # Validate extension manifests
 ```
@@ -95,7 +94,7 @@ Published to the **public npm registry** (`registry.npmjs.org`) — not GitHub P
 3. Push both: `git push origin main && git push origin v<version>`.
 4. The tag push fires the workflow → `npm publish --access public`. **Prerelease** versions (those containing `-`, e.g. `1.0.0-beta.31`) publish under the **`beta`** dist-tag; stable versions go to `latest`. Consuming sites pin a `^1.0.0-beta.N` range, so a new beta is only picked up on their next `npm install` / lockfile refresh — **each site needs its own dependency bump + push to redeploy.**
 
-No build or `npm install` runs in CI — the package ships as **source** (see the `files` field and the `exports` map pointing at `./src/*`), so `npm publish` just packs those files. The `postinstall` lru-cache patch runs only in consumers, never on publish.
+The package ships as **source** (see the `files` field and the `exports` map pointing at `./src/*`), so `npm publish` just packs those files — no build step. The publish workflow's `test` job runs `npm ci --ignore-scripts` + the full Vitest suite and asserts the tag matches `package.json` before the `publish` job runs.
 
 **Auth (`NPM_TOKEN` secret):** must be a valid npm token with publish rights to `@koehler8/cms`. If it expires, `npm publish` fails with a **misleading `E404` on the `PUT`** (npm returns 404, not 401, for an under-authorized scoped publish). Rotate it: create a **classic Automation token** (non-expiring, bypasses 2FA) at npmjs.com → `gh secret set NPM_TOKEN --repo koehler8/cms` → `gh run rerun <failed-run-id>` (the tag is already pushed; no re-tag needed).
 
@@ -133,7 +132,7 @@ Two failure modes we've seen on consumer sites:
 
 - **Always `nvm use` before any `npm install` or test run.** The `.nvmrc` here pins 20.19.0; your shell's npm should report `10.8.x`.
 - **Don't bump dep versions in this repo without `nvm use` first.** A regen on the wrong npm propagates the bad lockfile to every consumer site that picks it up.
-- **CI uses `npm install --ignore-scripts`** for publish (skips the lru-cache patch since publishing doesn't need it). The build workflow runs on `actions/setup-node` with the version from `.nvmrc`.
+- **Publish CI uses `npm ci --ignore-scripts`** for the test gate, on `actions/setup-node` with `node-version-file: .nvmrc`.
 
 ### Rules to surface to consumer sites
 
@@ -213,7 +212,6 @@ For example, on an English-base site: `Source: /en/<*>  Target: /<*>  Status: 30
 
 ## Gotchas
 
-- **lru-cache TLA patch**: `scripts/patch-lru-cache-tla.js` runs on postinstall to strip top-level await from lru-cache for Node 20 compatibility. Don't remove it until upstream fixes.
 - **No pre-bundling for vue/vue-router/pinia**: These are excluded from Vite's optimizer to prevent duplicate module instances when extensions are linked.
 - **cookieConsent analytics default**: `shouldEnableAnalytics()` returns true when consent is pending (analytics load before explicit consent). See the GDPR note in that file.
 - **canvas dependency**: Required for `generate-public-assets` (PNG/ICO generation). Needs system libs (cairo, pango, etc.) — see CI workflow for apt packages.

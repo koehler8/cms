@@ -15,7 +15,6 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**', 'scripts/**', 'vite-plugin.js'],
-      exclude: ['scripts/patch-lru-cache-tla.js'],
       reporter: ['text', 'html'],
     },
   },
