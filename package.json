@@ -41,15 +41,11 @@
     "./components/*.vue": "./src/components/*.vue",
     "./components/*.js": "./src/components/*.js",
     "./components/*": "./src/components/*",
-    "./router": "./src/router/index.js",
     "./themes/*.js": "./src/themes/*.js",
     "./themes/*": "./src/themes/*.js",
+    "./extensions/manifest.schema.json": "./extensions/manifest.schema.json",
     "./extensions/*.js": "./src/extensions/*.js",
     "./extensions/*": "./src/extensions/*.js",
-    "./constants/*.js": "./src/constants/*.js",
-    "./constants/*": "./src/constants/*.js",
-    "./plugins/*.js": "./src/plugins/*.js",
-    "./plugins/*": "./src/plugins/*.js",
     "./package.json": "./package.json"
   },
   "bin": {
