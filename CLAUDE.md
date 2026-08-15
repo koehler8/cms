@@ -117,7 +117,7 @@ No build or `npm install` runs in CI — the package ships as **source** (see th
 | OG / Twitter / per-page meta | `src/utils/socialMeta.js` (buildSocialMeta), `src/composables/usePageMeta.js` (useHead emission), `templates/index.html` (site-wide JSON-LD only) |
 | 404 page / not-found behavior | `src/components/NotFound.vue` (bundled fallback), `src/composables/usePageConfig.js` (selectPage returns sentinel), `src/composables/usePageMeta.js` (isNotFound title/noindex), `vite-plugin.js` (pre-renders /404, copies to 404.html via ssgOptions.onFinished) |
 | JSON-LD / Web App Manifest / site verification | `src/utils/jsonLd.js` (page+site block normalization), `src/utils/webAppManifest.js` (manifest builder), `src/composables/usePageMeta.js` (script[] + verify meta emission), `vite-plugin.js` (writeSeoFiles writes manifest.json), `templates/index.html` (link rel=manifest + theme-color) |
-| Image variants pipeline | `scripts/image-variants/` (modular: classifier, planner, renderer, manifest, cache, reconcile), `vite-plugin.js` `buildStart` hook + `configureServer` watcher (calls reconcile), `src/utils/imageSources.js` (`useResponsiveImage` runtime consumer), `bin/cms-migrate-image-variants.js` (per-site migration helper) |
+| Image variants pipeline | `scripts/image-variants/` (modular: classifier, planner, renderer, manifest, cache, reconcile), `vite-plugin.js` `buildStart` hook + `configureServer` watcher (calls reconcile), `src/utils/imageSources.js` (`useResponsiveImage` runtime consumer) |
 | Auto-breadcrumb JSON-LD | `src/utils/breadcrumbs.js` (path → BreadcrumbList), `src/composables/usePageMeta.js` (appends to script[]) |
 
 ## Lockfile and npm version (this is the #1 source of consumer-site deploy failures)

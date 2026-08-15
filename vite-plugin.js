@@ -828,15 +828,16 @@ export const assetUrlMap = resolver.assetUrlMap;
 
       // Strict deprecation: warn loudly if the legacy _source/ dir exists.
       // Pipeline only reads the flat dir — sites that haven't migrated will
-      // see broken image URLs until they run `npx @koehler8/cms migrate-image-variants`.
+      // see broken image URLs until the originals move up a level.
       const legacySourceDir = path.join(siteImgDir, '_source');
       if (fs.existsSync(legacySourceDir)) {
         this.warn(
           `[@koehler8/cms] Found legacy site/assets/img/_source/ directory.`
-          + ` As of beta.27 image originals live directly in site/assets/img/`
-          + ` and variants generate at build time into node_modules/.cache/.`
-          + ` Run \`npx @koehler8/cms migrate-image-variants\` from the site`
-          + ` directory to migrate. The pipeline is NOT reading from _source/`
+          + ` Image originals live directly in site/assets/img/ and variants`
+          + ` generate at build time into node_modules/.cache/. Move the`
+          + ` originals from _source/ up into site/assets/img/, delete any`
+          + ` committed pre-generated variants ({name}-{width}.{ext} files),`
+          + ` and remove _source/. The pipeline is NOT reading from _source/`
           + ` — image URLs will 404 until you migrate.`,
         );
       }

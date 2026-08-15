@@ -3,8 +3,6 @@
  *
  * Used by:
  *   - The Vite plugin (vite-plugin.js) — buildStart hook + dev watcher.
- *   - The migration helper (scripts/migrate-image-variants.mjs) — reads
- *     `_source/` presence to know whether to migrate.
  *
  * The pipeline runs at build/dev time, generates variants to
  * node_modules/.cache/@koehler8/cms/image-variants/{siteKey}/, and never
