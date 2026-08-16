@@ -9,9 +9,15 @@
         <p class="section-description">{{ subtitle }}</p>
       </header>
       <div class="contact-wrapper">
-        <form id="signup" class="contact-form ui-card ui-card-surface" :action="formAction" method="POST">
+        <form
+          id="signup"
+          ref="formRef"
+          class="contact-form ui-card ui-card-surface"
+          :action="formAction"
+          method="POST"
+          @submit.prevent="handleSubmit"
+        >
           <!-- Google Forms requires these hidden fields -->
-          <input type="hidden" name="entry.1210125274" id="siteToken">
           <input type="hidden" name="fvv" :value="hiddenFields.fvv">
           <!-- Replace the fbzx value with the real one from your form's HTML source or prefilled link -->
           <input type="hidden" name="fbzx" :value="hiddenFields.fbzx">
@@ -120,17 +126,23 @@
           </p>
 
           <div class="contact-actions">
-            <div
-              v-if="isConfirmationVisible"
-              class="submitted"
-              role="status"
-              aria-live="polite"
-            >
-              {{ confirmationText }}
-            </div>
-            <button class="primary-button contact-submit" type="submit">{{ submitLabel }}</button>
+            <button
+              class="primary-button contact-submit"
+              type="submit"
+              :disabled="!isFormConfigured"
+            >{{ submitLabel }}</button>
           </div>
-          <p id="msg" class="contact-feedback" role="status" aria-live="polite" aria-atomic="true"></p>
+          <p v-if="!isFormConfigured" class="contact-feedback">
+            The contact form isn't accepting messages right now.
+          </p>
+          <p
+            id="msg"
+            class="contact-feedback"
+            :class="feedbackKind ? `contact-feedback--${feedbackKind}` : null"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >{{ feedbackText }}</p>
         </form>
       </div>
     </div>
@@ -138,7 +150,7 @@
 </template>
 
 <script setup>
-import { computed, inject, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, inject, onMounted, reactive, ref, watch } from 'vue'
 import { trackEvent } from '../utils/analytics.js';
 import { readStoredLocale } from '../utils/webStorage.js';
 
@@ -147,13 +159,20 @@ const subtitle = ref("Send us a message and we'll keep you updated.")
 const formAction = ref('')
 const submitLabel = ref('Send Message')
 const confirmationText = ref('Your message has been sent successfully.')
-const isConfirmationVisible = ref(false)
 const honeypotMessage = ref('Thanks!')
 const pendingMessage = ref('Submitting…')
 const successMessage = ref('Thanks! Your message was sent.')
 const errorMessage = ref('Sorry—something went wrong. Please try again.')
 
-const SUBMISSION_TOKEN = '';
+// Single live feedback region (#msg): success, error, and pending states all
+// announce through it exactly once.
+const feedbackText = ref('')
+const feedbackKind = ref('')
+
+// A configured action URL is the only way a submission can go anywhere.
+// Without one the form is inert and says so — previously it posted to the
+// page's own URL and reported success.
+const isFormConfigured = computed(() => /^https?:\/\//i.test(formAction.value || ''))
 
 function getTrackedLocale() {
   return readStoredLocale() || 'default';
@@ -309,6 +328,11 @@ function normalizeChallengeType(type) {
 }
 
 function generateChallenge() {
+  // Deferred until mount: generating during setup ran on both the server and
+  // the client with different random values, so the prerendered question
+  // never matched what the client validated against — a guaranteed hydration
+  // mismatch on every page load.
+  if (!isMounted.value) return
   const configuredTypes = Array.isArray(challenge.types) && challenge.types.length
     ? challenge.types
     : [...DEFAULT_CHALLENGE_TYPES]
@@ -323,8 +347,6 @@ function generateChallenge() {
   expectedChallengeAnswer = expectedAnswer != null ? String(expectedAnswer) : ''
   activeChallengeType = chosenType
 }
-
-generateChallenge()
 
 function answersMatch(expected, received) {
   const expectedValue = String(expected ?? '').trim()
@@ -342,9 +364,8 @@ function isChallengeAnswerCorrect(answer) {
   return answersMatch(expectedChallengeAnswer, answer)
 }
 
-let formElement
-let submitHandler
-let tokenField
+const formRef = ref(null)
+const isMounted = ref(false)
 
 const pageContent = inject('pageContent', ref({}))
 
@@ -385,7 +406,6 @@ watch(
     formAction.value = formCopy.action ?? defaultFormAction
     submitLabel.value = formCopy.submitLabel ?? defaultSubmitLabel
     confirmationText.value = formCopy.confirmationText ?? defaultConfirmationText
-    isConfirmationVisible.value = false
     honeypotMessage.value = formCopy.honeypotMessage ?? defaultHoneypot
     pendingMessage.value = formCopy.pendingMessage ?? defaultPending
     successMessage.value = formCopy.successMessage ?? defaultSuccess
@@ -425,105 +445,97 @@ watch(
 )
 
 onMounted(() => {
-  formElement = document.getElementById('signup')
-  const msg = document.getElementById('msg')
-  tokenField = document.getElementById('siteToken')
-
-  const resetTokenField = () => {
-    if (tokenField) {
-      tokenField.value = SUBMISSION_TOKEN
-      tokenField.defaultValue = SUBMISSION_TOKEN
-    }
-  }
-
-  resetTokenField()
-
-  if (!formElement || !msg) return
-
-  submitHandler = async (e) => {
-    e.preventDefault()
-    isConfirmationVisible.value = false
-
-    const startedAt = typeof performance !== 'undefined' && typeof performance.now === 'function'
-      ? performance.now()
-      : undefined
-    const baseParams = {
-      locale: getTrackedLocale()
-    }
-    const emitSubmitEvent = (status, extra = {}) => {
-      const params = { ...baseParams, status, challenge_type: activeChallengeType, ...extra }
-      if (startedAt !== undefined && typeof performance !== 'undefined' && typeof performance.now === 'function') {
-        params.duration_ms = Math.round(performance.now() - startedAt)
-      }
-      trackEvent('contact_form_submit', params)
-    }
-
-    emitSubmitEvent('attempt')
-
-    const hp = formElement.querySelector('input[name="website"]')
-    if (hp && hp.value) {
-      msg.textContent = honeypotMessage.value
-      formElement.reset()
-      challengeAnswer.value = ''
-      generateChallenge()
-      resetTokenField()
-      trackEvent('contact_form_honeypot_triggered', {
-        ...baseParams,
-        challenge_type: 'honeypot_field'
-      })
-      return
-    }
-
-    if (!isChallengeAnswerCorrect(challengeAnswer.value)) {
-      msg.textContent = challenge.errorMessage
-      hasChallengeError.value = true
-      emitSubmitEvent('challenge_failed')
-      challengeAnswer.value = ''
-      generateChallenge()
-      return
-    }
-
-    hasChallengeError.value = false
-    msg.textContent = pendingMessage.value
-
-    try {
-      resetTokenField()
-      const formData = new FormData(formElement)
-      formData.set('entry.1210125274', SUBMISSION_TOKEN)
-
-      await fetch(formElement.action, {
-        method: 'POST',
-        mode: 'no-cors',
-        body: formData
-      })
-      msg.textContent = successMessage.value
-      formElement.reset()
-      challengeAnswer.value = ''
-      generateChallenge()
-      resetTokenField()
-      isConfirmationVisible.value = !!(confirmationText.value && confirmationText.value.trim())
-      emitSubmitEvent('success')
-    } catch (err) {
-      console.error('[Contact] Form submission failed:', err)
-      msg.textContent = errorMessage.value
-      emitSubmitEvent('error', {
-        error_name: err?.name || 'unknown',
-        error_code: err?.code || 'unknown'
-      })
-      challengeAnswer.value = ''
-      generateChallenge()
-      resetTokenField()
-    }
-  }
-
-  formElement.addEventListener('submit', submitHandler)
+  isMounted.value = true
+  challengeAnswer.value = ''
+  generateChallenge()
 })
 
-onUnmounted(() => {
-  if (formElement && submitHandler) {
-    formElement.removeEventListener('submit', submitHandler)
+async function handleSubmit() {
+  const formElement = formRef.value
+  if (!formElement) return
+
+  feedbackKind.value = ''
+  feedbackText.value = ''
+
+  const startedAt = typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : undefined
+  const baseParams = {
+    locale: getTrackedLocale()
   }
-})
+  const emitSubmitEvent = (status, extra = {}) => {
+    const params = { ...baseParams, status, challenge_type: activeChallengeType, ...extra }
+    if (startedAt !== undefined && typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      params.duration_ms = Math.round(performance.now() - startedAt)
+    }
+    trackEvent('contact_form_submit', params)
+  }
+
+  emitSubmitEvent('attempt')
+
+  if (!isFormConfigured.value) {
+    feedbackKind.value = 'error'
+    feedbackText.value = errorMessage.value
+    emitSubmitEvent('unconfigured')
+    return
+  }
+
+  const hp = formElement.querySelector('input[name="website"]')
+  if (hp && hp.value) {
+    feedbackKind.value = 'success'
+    feedbackText.value = honeypotMessage.value
+    formElement.reset()
+    challengeAnswer.value = ''
+    generateChallenge()
+    trackEvent('contact_form_honeypot_triggered', {
+      ...baseParams,
+      challenge_type: 'honeypot_field'
+    })
+    return
+  }
+
+  if (!isChallengeAnswerCorrect(challengeAnswer.value)) {
+    feedbackKind.value = 'error'
+    feedbackText.value = challenge.errorMessage
+    hasChallengeError.value = true
+    emitSubmitEvent('challenge_failed')
+    challengeAnswer.value = ''
+    generateChallenge()
+    return
+  }
+
+  hasChallengeError.value = false
+  feedbackKind.value = 'pending'
+  feedbackText.value = pendingMessage.value
+
+  try {
+    const formData = new FormData(formElement)
+    await fetch(formAction.value, {
+      method: 'POST',
+      mode: 'no-cors',
+      body: formData
+    })
+    // no-cors responses are opaque: resolving means the request reached the
+    // endpoint, not that it was accepted — the strongest claim available.
+    feedbackKind.value = 'success'
+    feedbackText.value = (confirmationText.value || '').trim() || successMessage.value
+    formElement.reset()
+    challengeAnswer.value = ''
+    generateChallenge()
+    emitSubmitEvent('success')
+  } catch (err) {
+    // Network-level failure: report it and keep everything the visitor typed.
+    console.error('[Contact] Form submission failed:', err)
+    feedbackKind.value = 'error'
+    feedbackText.value = errorMessage.value
+    emitSubmitEvent('error', {
+      error_name: err?.name || 'unknown',
+      error_code: err?.code || 'unknown'
+    })
+    challengeAnswer.value = ''
+    generateChallenge()
+  }
+}
 </script>
 
 <style scoped>

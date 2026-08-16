@@ -721,6 +721,22 @@ export default function cmsPlugin(options = {}) {
         );
       }
 
+      // Contact-form shape check: a page with contact content but no valid
+      // form action renders a disabled form. Warn (not fatal) so the
+      // operator finds out at build time, not from a visitor.
+      for (const [locale, localePages] of Object.entries(pagesByLocale)) {
+        for (const [pageId, page] of Object.entries(localePages || {})) {
+          const contact = page?.content?.contact;
+          if (!contact || typeof contact !== 'object') continue;
+          const action = contact.form?.action;
+          if (typeof action !== 'string' || !/^https?:\/\//i.test(action.trim())) {
+            console.warn(
+              `[@koehler8/cms] pages/${pageId}.json (locale ${locale}): content.contact has no valid form.action URL — the contact form will render disabled.`,
+            );
+          }
+        }
+      }
+
       const extensionsDir = path.join(frameworkRoot, 'extensions');
       const extensionSetupFiles = collectExtensionSetupFiles(extensionsDir);
 
