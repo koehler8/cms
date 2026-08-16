@@ -1,11 +1,26 @@
+/**
+ * cms-validate-themes — validate theme manifests.
+ *
+ * Validates:
+ *   - the framework's bundled themes (themes/ at the package root)
+ *   - a site's local themes at <projectRoot>/themes/<slug>/ when --site-dir
+ *     is given (project root = parent of the site dir, matching the plugin)
+ *
+ * Exits non-zero on any invalid manifest.
+ */
+
 import { readdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateThemeManifest } from '../src/themes/themeValidator.js';
 
 const MANIFEST_PATTERN = /theme\.config\.(js|mjs|json)$/;
 const ROOT_DIR = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const THEMES_DIR = join(ROOT_DIR, 'themes');
+const FRAMEWORK_THEMES_DIR = join(ROOT_DIR, 'themes');
+
+const siteDir = process.env.CMS_SITE_DIR ? resolve(process.env.CMS_SITE_DIR) : '';
+const SITE_THEMES_DIR = siteDir ? join(dirname(siteDir), 'themes') : '';
 
 async function collectManifestPaths(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -29,14 +44,31 @@ async function loadManifestFromPath(filePath) {
 }
 
 async function main() {
-  const manifestPaths = await collectManifestPaths(THEMES_DIR);
+  const seen = new Set();
+  const manifestPaths = [];
+  for (const dir of [FRAMEWORK_THEMES_DIR, SITE_THEMES_DIR]) {
+    if (!dir || !existsSync(dir)) continue;
+    for (const p of await collectManifestPaths(dir)) {
+      if (seen.has(p)) continue;
+      seen.add(p);
+      manifestPaths.push(p);
+    }
+  }
+
   if (!manifestPaths.length) {
-    console.warn('No theme manifests found under /themes.');
+    console.log('No theme manifests found (framework themes/ and site themes/ are both empty).');
     return;
   }
+
   const failures = [];
   for (const manifestPath of manifestPaths) {
-    const manifest = await loadManifestFromPath(manifestPath);
+    let manifest;
+    try {
+      manifest = await loadManifestFromPath(manifestPath);
+    } catch (error) {
+      failures.push({ path: manifestPath, errors: [`failed to load: ${error.message}`] });
+      continue;
+    }
     const { valid, errors } = validateThemeManifest(manifest, { throwOnError: false });
     if (!valid) {
       failures.push({ path: manifestPath, errors });

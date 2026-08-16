@@ -236,11 +236,17 @@ npx cms-ssg-build
 
 # Generate favicon.ico, logo.png, og-image.jpg from source assets
 npx cms-generate-public-assets --site-dir ./site
+
+# Validate theme manifests (bundled + your site-local themes/)
+npx cms-validate-themes --site-dir ./site
+
+# Validate extension manifests (site-local extensions/ + named packages)
+npx cms-validate-extensions --site-dir ./site @koehler8/cms-ext-compliance
 ```
 
-`cms-validate-themes` / `cms-validate-extensions` also ship, but currently
-validate only the framework's own bundled manifests — they do not yet
-inspect a consuming site's `themes/` or `extensions/` directories.
+(The Vite plugin also runs the same extension-manifest validation on every
+build and fails loudly on an invalid manifest — the CLIs are for checking
+outside a build.)
 
 ## Exports
 

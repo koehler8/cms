@@ -55,10 +55,10 @@ npm run dev                    # Not applicable — this is a library
 npm test                       # Run full test suite (Vitest)
 npm run test:watch             # Run tests in watch mode
 npm run test:coverage          # Run tests with coverage report
-npx cms-validate-themes        # Validates the framework's own bundled theme manifests only
-npx cms-validate-extensions    # Validates the framework's own bundled manifests only — its
-                               # --site-dir flag is parsed but never read (review finding F2);
-                               # do not advertise either as site validation until reworked
+npx cms-validate-themes --site-dir ./site       # Bundled themes + the site's themes/<slug>/
+npx cms-validate-extensions --site-dir ./site   # Site-local extensions/ + named packages;
+                                                # same schema validation the Vite plugin
+                                                # runs (and fails on) at build time
 ```
 
 ## Testing
