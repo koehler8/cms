@@ -1,5 +1,5 @@
 <template>
-  <section id="plan" class="section-shell plan-section" data-analytics-section="plan">
+  <section v-if="hasContent" id="plan" class="section-shell plan-section" data-analytics-section="plan">
     <div class="container">
       <header class="plan-heading text-center">
         <div class="plan-heading__divider" aria-hidden="true"></div>
@@ -35,6 +35,9 @@ import { computed, inject, ref } from 'vue';
 const pageContent = inject('pageContent', ref({}));
 
 const planData = computed(() => pageContent.value?.plan || {});
+// components[] contract: no content.plan block → render nothing (never a
+// placeholder heading over an empty grid).
+const hasContent = computed(() => Object.keys(planData.value).length > 0);
 
 const planTitle = computed(() => planData.value?.title || 'The Plan');
 const planSubtitle = computed(() => planData.value?.subtitle || '');

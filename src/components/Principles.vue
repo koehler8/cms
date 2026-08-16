@@ -1,5 +1,5 @@
 <template>
-  <section id="principles" class="section-shell principles-section" data-analytics-section="principles">
+  <section v-if="hasContent" id="principles" class="section-shell principles-section" data-analytics-section="principles">
     <div class="container">
       <header class="section-header text-center">
         <div class="section-heading">
@@ -29,6 +29,8 @@ import { computed, inject, ref } from 'vue';
 const pageContent = inject('pageContent', ref({}));
 
 const principlesData = computed(() => pageContent.value?.principles || {});
+// components[] contract: no content.principles block → render nothing.
+const hasContent = computed(() => Object.keys(principlesData.value).length > 0);
 
 const principlesTitle = computed(() => principlesData.value?.title || 'Principles');
 const principlesSubtitle = computed(() => principlesData.value?.subtitle || '');

@@ -1,6 +1,6 @@
 <template>
-  <section id="about-value" class="about-value-section section-shell" data-analytics-section="about-value">
-    <div v-if="hasValueProps" class="container">
+  <section v-if="hasValueProps" id="about-value" class="about-value-section section-shell" data-analytics-section="about-value">
+    <div class="container">
       <div class="about-value__grid">
         <div class="about-value__media">
           <div

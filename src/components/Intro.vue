@@ -1,5 +1,5 @@
 <template>
-  <section id="intro" class="section-shell intro-section" data-analytics-section="intro">
+  <section v-if="hasContent" id="intro" class="section-shell intro-section" data-analytics-section="intro">
     <div class="container">
       <div class="intro-grid">
         <div class="intro-column">
@@ -61,6 +61,9 @@
   const pageContent = inject('pageContent', ref({}));
 
   const introData = computed(() => pageContent.value?.intro || {});
+  // components[] contract: no content.intro block → render nothing (never an
+  // empty heading, divider, and image column).
+  const hasContent = computed(() => Object.keys(introData.value).length > 0);
 
   const introTitle = computed(() => introData.value?.title || '');
   const introText = computed(() => introData.value?.text || '');

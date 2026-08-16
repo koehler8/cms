@@ -1,5 +1,6 @@
 <template>
   <section
+    v-if="hasContent"
     id="about"
     class="about-section section-shell section-shell--tight ui-section--overlay"
     data-analytics-section="about-overview"
@@ -99,6 +100,9 @@ const pageContent = inject('pageContent', ref({}));
 const { resolve: resolveComingSoon } = useComingSoonResolver(pageContent);
 
 const aboutContent = computed(() => pageContent.value?.about || {});
+// components[] contract: no content.about block → render nothing (never
+// empty headings and image frames).
+const hasContent = computed(() => Object.keys(aboutContent.value).length > 0);
 
 const getAboutValue = (key, fallback) => {
   const value = aboutContent.value?.[key];

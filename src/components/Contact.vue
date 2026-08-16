@@ -1,5 +1,5 @@
 <template>
-  <section id="contact" class="contact-section ui-section ui-section--stacked" data-analytics-section="contact">
+  <section v-if="hasContent" id="contact" class="contact-section ui-section ui-section--stacked" data-analytics-section="contact">
     <div class="container">
       <header class="section-header text-center">
         <div class="section-heading">
@@ -347,6 +347,11 @@ let submitHandler
 let tokenField
 
 const pageContent = inject('pageContent', ref({}))
+
+// components[] contract: no content.contact block → render nothing. A
+// contact form can't work without configuration anyway (the default form
+// action is empty), so an unconfigured Contact rendered a decoy form.
+const hasContent = computed(() => Object.keys(pageContent.value?.contact || {}).length > 0)
 
 const defaultTitle = title.value
 const defaultSubtitle = subtitle.value
