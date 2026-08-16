@@ -2,9 +2,55 @@
 
 ## 1.0.0 (unreleased)
 
-First stable release. The changes below are the release-readiness batch from
-the 2026-08-15 architecture review (`ARCHITECTURE-REVIEW.md`); the review's
-remaining phases (breaking-window items, 1.0.x stabilization) land separately.
+First stable release. The changes below are the release-readiness and
+breaking-window batches from the 2026-08-15 architecture review
+(`ARCHITECTURE-REVIEW.md`); the review's 1.0.x stabilization phase lands in
+patch releases.
+
+### Breaking changes (the 1.0 window)
+
+All verified end-to-end on a scratch site built against this tree: SSG build,
+rendered HTML inspection, and live browser hydration/storage/draft-gate
+checks.
+
+- **`site.trimInitialState` now defaults ON.** Pages embed only their own
+  config in `window.__INITIAL_STATE__` (measured 218 KB / 81% of page weight
+  saved on a profiled site). Opt out with `"trimInitialState": false`.
+  Rendered HTML is unaffected; the client soft-reloads the full config after
+  first paint so in-SPA navigation keeps working.
+- **Browser-storage keys are namespaced under `cms_`** (`cms_locale`,
+  `cms_cookie_consent`, `cms_cookie_consent_timestamp`, `cms_session_id`,
+  `cms_attribution_v1`) via a single guarded helper. Reads fall back to the
+  old unprefixed keys and migrate them forward, so returning visitors keep
+  their consent choice and locale. All access now degrades safely in Safari
+  private mode.
+- **Extension manifests validate at build time, not in the browser.** An
+  invalid `extension.config.json` now fails the build with the offending
+  fields; ajv/ajv-formats (~40 KB gz) no longer ship to visitors. The runtime
+  keeps a cheap structural check whose failure logs unconditionally.
+- **The vestigial `/admin` route is gone** (was a pre-rendered duplicate of
+  the 404 page on every site, once per shard).
+- **robots.txt no longer discloses draft URLs.** Per-page and `draftPaths`
+  `Disallow` lines were the discovery vector for unlinked drafts and blocked
+  Google from ever seeing the page's `noindex`. Deindexing now rests on the
+  noindex meta + sitemap omission + the gate; site-wide draft keeps its
+  blanket `Disallow: /`. Non-draft sites emit the canonical allow-all form.
+- **Five components stop rendering placeholders without content.** `Plan`,
+  `Principles`, `Contact`, `About`, `Intro` now render nothing when their
+  `content.*` block is absent (matching `ComingSoon`); `AboutValue` stops
+  emitting an empty section shell. Fleet audit: every live page supplies its
+  content block, so nothing visible changes.
+- **Unique section ids:** `AboutValue` → `#about-value`, `Intro` → `#intro`
+  (`About` keeps `#about`). Fleet audit: no page composes two of the trio and
+  no site's `#about` anchors target the bundled components.
+- **One `Spacer`** (prop-driven, default 30px) replaces four copies;
+  `Spacer15/30/40/60` remain as aliases so existing pages keep working. Bare
+  `"Spacer"` now means 30px (previously aliased to the 15px variant; zero
+  fleet usage of the bare name).
+- **New `site.analytics.consentMode`:** `"opt-out"` (default — analytics load
+  while consent is pending, today's behavior) or `"opt-in"` (analytics stay
+  off until explicit acceptance; the GDPR/ePrivacy posture for EU-audience
+  sites).
 
 ### Release pipeline: publishing is now gated
 
