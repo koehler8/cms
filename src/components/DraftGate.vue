@@ -1,12 +1,13 @@
 <template>
   <section
+    ref="dialogRef"
     class="draft-gate"
     role="dialog"
     aria-modal="true"
     aria-labelledby="draft-gate-title"
     aria-describedby="draft-gate-description"
   >
-    <div class="draft-gate-card" ref="cardRef" tabindex="-1">
+    <div class="draft-gate-card">
       <p class="draft-gate-eyebrow">Draft</p>
       <h1 id="draft-gate-title" class="draft-gate-title">
         This page is not yet public
@@ -48,7 +49,8 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
+import { useFocusTrap } from '../composables/useFocusTrap.js';
 
 const props = defineProps({
   hasPassword: {
@@ -65,8 +67,12 @@ const emit = defineEmits(['submit']);
 
 const passwordInput = ref('');
 const inputRef = ref(null);
-const cardRef = ref(null);
+const dialogRef = ref(null);
 const hasError = computed(() => Boolean(props.errorMessage));
+
+// The gate IS the page while locked, so the trap is permanently active and
+// deliberately has no Escape dismiss. Focus lands on the password input.
+useFocusTrap(dialogRef, () => true, { initialFocusRef: inputRef });
 
 const bodyText = computed(() =>
   props.hasPassword
@@ -79,13 +85,6 @@ const submitLabel = computed(() => (props.hasPassword ? 'Unlock' : 'Continue'));
 function handleSubmit() {
   emit('submit', passwordInput.value);
 }
-
-onMounted(() => {
-  if (import.meta.env.SSR) return;
-  nextTick(() => {
-    inputRef.value?.focus();
-  });
-});
 </script>
 
 <style scoped>

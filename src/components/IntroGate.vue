@@ -57,8 +57,9 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { trackEvent } from '../utils/analytics.js';
+import { useFocusTrap } from '../composables/useFocusTrap.js';
 
 const props = defineProps({
   enabled: {
@@ -101,11 +102,9 @@ const props = defineProps({
 
 const isOpen = ref(false);
 const dialogRef = ref(null);
-const previousFocusedElement = ref(null);
 
 const dialogTitleId = computed(() => 'intro-gate-title');
 const dialogDescriptionId = computed(() => 'intro-gate-description');
-const focusableSelector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 const eyebrowText = computed(() => (typeof props.eyebrow === 'string' ? props.eyebrow.trim() : ''));
 const titleText = computed(() => (typeof props.title === 'string' ? props.title.trim() : ''));
 const bodyText = computed(() => (typeof props.body === 'string' ? props.body.trim() : ''));
@@ -166,67 +165,7 @@ function handlePrimaryClick() {
   handleDismiss('continue');
 }
 
-function focusDialog() {
-  if (typeof window === 'undefined') return;
-  nextTick(() => {
-    dialogRef.value?.focus();
-  });
-}
-
-function restoreFocus() {
-  if (!previousFocusedElement.value) return;
-  if (typeof previousFocusedElement.value.focus === 'function') {
-    previousFocusedElement.value.focus();
-  }
-  previousFocusedElement.value = null;
-}
-
-function trapFocus(event) {
-  if (!isOpen.value) return;
-  if (typeof document === 'undefined') return;
-  if (event.key !== 'Tab') return;
-  const dialogEl = dialogRef.value;
-  if (!dialogEl) return;
-  const focusable = dialogEl.querySelectorAll(focusableSelector);
-  if (!focusable.length) {
-    event.preventDefault();
-    return;
-  }
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
-}
-
-function handleKeydown(event) {
-  if (!isOpen.value) return;
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    handleDismiss('escape');
-  } else if (event.key === 'Tab') {
-    trapFocus(event);
-  }
-}
-
-watch(
-  () => isOpen.value,
-  (open) => {
-    if (import.meta.env.SSR) return;
-    if (open) {
-      previousFocusedElement.value = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      focusDialog();
-      document.addEventListener('keydown', handleKeydown);
-    } else {
-      document.removeEventListener('keydown', handleKeydown);
-      restoreFocus();
-    }
-  }
-);
+useFocusTrap(dialogRef, isOpen, { onEscape: () => handleDismiss('escape') });
 
 function maybeOpenGate() {
   if (import.meta.env.SSR) return;
@@ -250,11 +189,6 @@ watch(
 onMounted(() => {
   if (import.meta.env.SSR) return;
   maybeOpenGate();
-});
-
-onBeforeUnmount(() => {
-  if (import.meta.env.SSR) return;
-  document.removeEventListener('keydown', handleKeydown);
 });
 </script>
 

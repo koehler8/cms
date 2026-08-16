@@ -48,7 +48,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
+import { useFocusTrap } from '../composables/useFocusTrap.js';
 
 const props = defineProps({
   open: {
@@ -68,8 +69,6 @@ const props = defineProps({
 const emit = defineEmits(['close']);
 
 const dialogRef = ref(null);
-const previousFocusedElement = ref(null);
-const focusableSelector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 const dialogTitleId = computed(() => 'coming-soon-title');
 const dialogDescriptionId = computed(() => 'coming-soon-message');
 
@@ -77,77 +76,7 @@ const emitClose = () => {
   emit('close');
 };
 
-const onDocumentKeydown = (event) => {
-  if (event.key === 'Escape' || event.key === 'Esc') {
-    event.preventDefault();
-    emitClose();
-  }
-};
-
-const trapFocus = (event) => {
-  if (!props.open) return;
-  if (typeof document === 'undefined') return;
-  if (event.key !== 'Tab') return;
-  const dialogEl = dialogRef.value;
-  if (!dialogEl) return;
-  const focusable = dialogEl.querySelectorAll(focusableSelector);
-  if (!focusable.length) {
-    event.preventDefault();
-    return;
-  }
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
-};
-
-watch(
-  () => props.open,
-  (isOpen) => {
-    if (typeof document === 'undefined') return;
-    if (isOpen) {
-      // Capture whatever was focused before the modal opened so we can
-      // restore focus on close (WCAG 2.4.3 Focus Order).
-      previousFocusedElement.value = document.activeElement;
-      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-        window.requestAnimationFrame(() => {
-          dialogRef.value?.focus();
-        });
-      } else {
-        dialogRef.value?.focus();
-      }
-      document.addEventListener('keydown', trapFocus);
-      document.addEventListener('keydown', onDocumentKeydown);
-    } else {
-      document.removeEventListener('keydown', trapFocus);
-      document.removeEventListener('keydown', onDocumentKeydown);
-      const previous = previousFocusedElement.value;
-      if (previous && typeof previous.focus === 'function') {
-        previous.focus();
-      }
-      previousFocusedElement.value = null;
-    }
-  }
-);
-
-onMounted(() => {
-  if (typeof document === 'undefined') return;
-  if (props.open) {
-    document.addEventListener('keydown', trapFocus);
-    document.addEventListener('keydown', onDocumentKeydown);
-  }
-});
-
-onBeforeUnmount(() => {
-  if (typeof document === 'undefined') return;
-  document.removeEventListener('keydown', trapFocus);
-  document.removeEventListener('keydown', onDocumentKeydown);
-});
+useFocusTrap(dialogRef, () => props.open, { onEscape: emitClose });
 </script>
 
 <style scoped>
