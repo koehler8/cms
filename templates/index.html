@@ -12,16 +12,7 @@
     <link rel="icon" href="/favicon.ico">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="<%= manifestThemeColor %>">
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "Organization",
-      "name": "<%= site %>",
-      "url": "<%= siteUrl %>",
-      "logo": "<%= ABSOLUTE_LOGO %>",
-      "sameAs": <%- siteSameAsJson %>
-    }
-    </script>
+    <script type="application/ld+json"><%- organizationJsonLd %></script>
   </head>
   <!-- Google Analytics is loaded dynamically after user consent -->
   <body>

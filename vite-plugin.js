@@ -131,7 +131,6 @@ function extractSiteMetadata(siteConfig) {
   const siteSameAsList = Array.isArray(siteSameAs)
     ? siteSameAs.map((v) => (typeof v === 'string' ? v.trim() : '')).filter(Boolean)
     : [];
-  const siteSameAsJson = JSON.stringify(siteSameAsList);
 
   // Mobile chrome bar / PWA splash color. Defaults match buildWebAppManifest's
   // default so the rendered <meta name="theme-color"> matches whatever
@@ -140,7 +139,7 @@ function extractSiteMetadata(siteConfig) {
     ? siteManifest.themeColor.trim()
     : '') || '#ffffff';
 
-  return { siteTitle, siteDescription, siteUrl, siteGoogleId, siteSameAsJson, manifestThemeColor };
+  return { siteTitle, siteDescription, siteUrl, siteGoogleId, siteSameAsList, manifestThemeColor };
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -252,6 +251,24 @@ function renderTemplate(template, data) {
     ? `${canonicalBase}${STATIC_OG_IMAGE_PATH}`
     : STATIC_OG_IMAGE_PATH;
 
+  // The Organization JSON-LD is built as real JSON rather than interpolated
+  // field-by-field in the template: <%= %> HTML-escaping corrupted values
+  // inside the script element (a `"` in a site title shipped to crawlers as
+  // a literal &quot;), and raw interpolation risked </script> breakout.
+  // JSON.stringify with `<` escaped is both valid JSON and script-safe.
+  const organizationJsonLd = JSON.stringify(
+    {
+      '@context': 'https://schema.org',
+      '@type': 'Organization',
+      name: data.site ?? '',
+      url: data.siteUrl ?? '',
+      logo: ABSOLUTE_LOGO,
+      sameAs: data.siteSameAsList ?? [],
+    },
+    null,
+    2,
+  ).replace(/</g, '\\u003c');
+
   const scope = {
     ...data,
     STATIC_LOGO_PATH,
@@ -259,6 +276,7 @@ function renderTemplate(template, data) {
     canonicalBase,
     ABSOLUTE_LOGO,
     ABSOLUTE_OG_IMAGE,
+    organizationJsonLd,
   };
 
   // Strip <% ... %> blocks (declarations are pre-computed above)
@@ -514,7 +532,7 @@ export default function cmsPlugin(options = {}) {
       siteDescription: metadata.siteDescription,
       siteUrl: metadata.siteUrl,
       siteGoogleId: metadata.siteGoogleId,
-      siteSameAsJson: metadata.siteSameAsJson,
+      siteSameAsList: metadata.siteSameAsList,
       manifestThemeColor: metadata.manifestThemeColor,
     });
 
@@ -1185,7 +1203,7 @@ export const assetUrlMap = resolver.assetUrlMap;
               siteDescription: metadata.siteDescription,
               siteUrl: metadata.siteUrl,
               siteGoogleId: metadata.siteGoogleId,
-              siteSameAsJson: metadata.siteSameAsJson,
+              siteSameAsList: metadata.siteSameAsList,
               manifestThemeColor: metadata.manifestThemeColor,
             });
 

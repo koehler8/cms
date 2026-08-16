@@ -37,7 +37,10 @@ function defaultIcons() {
   // Browsers pick the best size; the 256x256 PNG is the primary, the
   // .ico is the legacy fallback for older Android.
   return [
-    { src: '/favicon-256.png', sizes: '256x256', type: 'image/png', purpose: 'any maskable' },
+    // purpose 'any' only: the default icon isn't padded for the maskable
+    // safe zone, and claiming 'maskable' gets it cropped (Lighthouse flags
+    // the combined 'any maskable' for exactly this).
+    { src: '/favicon-256.png', sizes: '256x256', type: 'image/png', purpose: 'any' },
     { src: '/favicon.ico', sizes: '64x64 32x32 16x16', type: 'image/x-icon' },
   ];
 }

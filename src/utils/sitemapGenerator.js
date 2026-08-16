@@ -5,10 +5,12 @@
  * sitemap. Returns '' when site.url is missing (the sitemap protocol requires
  * absolute URLs); the plugin treats empty output as "do not write the file."
  *
- * Single-locale sites emit only <loc> per page. Multi-locale sites add
- * <xhtml:link rel="alternate" hreflang="..." /> annotations per page (one
- * per available locale plus an `x-default` pointing at the base-locale
- * URL). The single-locale output stays byte-identical to pre-hreflang.
+ * Single-locale sites emit only <loc> per page. Multi-locale sites emit one
+ * <url> per page × locale — every localized URL is a first-class sitemap
+ * entry (Google's multilingual guidance) — each carrying the full
+ * <xhtml:link rel="alternate" hreflang="..." /> cluster plus an `x-default`
+ * pointing at the base-locale URL. The single-locale output stays
+ * byte-identical to pre-hreflang.
  */
 
 import { isPathDraft, normalizeDraftPath } from './draftMode.js';
@@ -56,17 +58,24 @@ export function buildSitemap(siteConfig, options = {}) {
     const baseUrl = buildCanonicalUrl({ siteUrl, baseLocale, locale: baseLocale, path: pagePath, trailingSlash });
     if (!baseUrl) continue;
 
-    const alternates = isMultiLocale
-      ? availableLocales.map((loc) => ({
-          hreflang: loc,
-          href: buildCanonicalUrl({ siteUrl, baseLocale, locale: loc, path: pagePath, trailingSlash }),
-        }))
-      : [];
-    if (isMultiLocale) {
-      alternates.push({ hreflang: 'x-default', href: baseUrl });
+    if (!isMultiLocale) {
+      entries.push({ loc: baseUrl, alternates: [] });
+      continue;
     }
 
-    entries.push({ loc: baseUrl, alternates });
+    // Every locale version is its own <url> entry; the alternate cluster is
+    // identical across them (that's the spec — each entry lists all of its
+    // language versions, including itself).
+    const alternates = availableLocales.map((loc) => ({
+      hreflang: loc,
+      href: buildCanonicalUrl({ siteUrl, baseLocale, locale: loc, path: pagePath, trailingSlash }),
+    }));
+    alternates.push({ hreflang: 'x-default', href: baseUrl });
+
+    for (const loc of availableLocales) {
+      const localizedUrl = buildCanonicalUrl({ siteUrl, baseLocale, locale: loc, path: pagePath, trailingSlash });
+      if (localizedUrl) entries.push({ loc: localizedUrl, alternates });
+    }
   }
 
   if (entries.length === 0) return '';

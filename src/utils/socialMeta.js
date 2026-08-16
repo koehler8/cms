@@ -36,6 +36,8 @@ export function buildSocialMeta({
   canonicalHref,
   isDraft,
   isNotFound,
+  locale,
+  availableLocales,
 } = {}) {
   if (isDraft || isNotFound) return [];
 
@@ -78,6 +80,21 @@ export function buildSocialMeta({
     meta.push({ name: 'twitter:image', content: ogImage, key: 'twitter:image' });
   }
   meta.push({ name: 'twitter:card', content: twitterCard, key: 'twitter:card' });
+
+  // og:locale mirrors the page's rendered language; alternates list the other
+  // locales the framework actually pre-renders (same set as hreflang). Bare
+  // language codes are emitted as-is — the framework's locale ids don't carry
+  // territories.
+  const currentLocale = typeof locale === 'string' ? locale.trim() : '';
+  if (currentLocale) {
+    meta.push({ property: 'og:locale', content: currentLocale, key: 'og:locale' });
+    const others = (Array.isArray(availableLocales) ? availableLocales : [])
+      .map((l) => (typeof l === 'string' ? l.trim() : ''))
+      .filter((l) => l && l !== currentLocale);
+    others.forEach((l) => {
+      meta.push({ property: 'og:locale:alternate', content: l, key: `og:locale:alternate:${l}` });
+    });
+  }
 
   return meta;
 }

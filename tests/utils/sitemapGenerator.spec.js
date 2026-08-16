@@ -168,10 +168,15 @@ describe('buildSitemap', () => {
       expect(aboutBlock).toContain('hreflang="x-default" href="https://example.com/about"');
     });
 
-    it('uses base-locale URL as <loc>', () => {
+    it('emits every locale version as its own <url> entry (Google multilingual-sitemap guidance)', () => {
       const xml = buildSitemap(...multiLocaleArgs());
       expect(xml).toContain('<loc>https://example.com/about</loc>');
-      expect(xml).not.toContain('<loc>https://example.com/de/about</loc>');
+      expect(xml).toContain('<loc>https://example.com/de/about</loc>');
+      expect(xml).toContain('<loc>https://example.com/fr/about</loc>');
+      // Each localized entry carries the identical full alternate cluster.
+      const deBlock = xml.split('<url>').find((b) => b.includes('<loc>https://example.com/de/about</loc>'));
+      expect(deBlock).toContain('hreflang="en" href="https://example.com/about"');
+      expect(deBlock).toContain('hreflang="x-default" href="https://example.com/about"');
     });
 
     it('drafts still excluded in multi-locale output', () => {

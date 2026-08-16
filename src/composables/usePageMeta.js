@@ -3,7 +3,7 @@ import { useHead } from '@unhead/vue';
 import { isPathDraft } from '../utils/draftMode.js';
 import { buildCanonicalUrl } from '../utils/canonicalUrl.js';
 import { buildSocialMeta } from '../utils/socialMeta.js';
-import { buildJsonLdScripts } from '../utils/jsonLd.js';
+import { buildJsonLdScripts, toJsonLdString } from '../utils/jsonLd.js';
 import { buildBreadcrumbList } from '../utils/breadcrumbs.js';
 import { availableLocales as configAvailableLocales, baseLocale as configBaseLocale } from '../utils/loadConfig.js';
 
@@ -177,6 +177,8 @@ export function usePageMeta({ siteData, currentPage, locale }) {
       canonicalHref: canonicalHref.value,
       isDraft: isDraft.value,
       isNotFound: isNotFound.value,
+      locale: localeValue.value || configBaseLocale,
+      availableLocales: configAvailableLocales,
     });
     for (const entry of social) meta.push(entry);
 
@@ -225,7 +227,7 @@ export function usePageMeta({ siteData, currentPage, locale }) {
     if (breadcrumb && !isDraft.value && !isNotFound.value) {
       script.push({
         type: 'application/ld+json',
-        innerHTML: JSON.stringify(breadcrumb),
+        innerHTML: toJsonLdString(breadcrumb),
         key: 'jsonld-BreadcrumbList',
       });
     }

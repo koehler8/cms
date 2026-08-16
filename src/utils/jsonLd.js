@@ -32,6 +32,14 @@ function normalizeBlock(block) {
   return block;
 }
 
+// JSON.stringify does not escape `<`, so an author string containing
+// "</script>" would terminate the JSON-LD script element early and dump the
+// rest of the block as markup. `<` is the standard hardening — still
+// valid JSON, inert in HTML.
+export function toJsonLdString(value) {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
 function collectBlocks(input) {
   if (!input) return [];
   if (Array.isArray(input)) {
@@ -52,7 +60,7 @@ export function buildJsonLdScripts({ siteData, currentPage, isDraft, isNotFound 
 
   return all.map((block, i) => ({
     type: 'application/ld+json',
-    innerHTML: JSON.stringify(block),
+    innerHTML: toJsonLdString(block),
     key: `jsonld-${block['@type'] || 'block'}-${i}`,
   }));
 }
