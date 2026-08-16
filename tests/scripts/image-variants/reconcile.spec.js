@@ -239,4 +239,38 @@ describe('reconcileVariantCache', () => {
     const r2 = await reconcileVariantCache({ ...args, jobs: plan(ctx.fixture) });
     expect(r2.generated).toBe(0);
   });
+
+  it('a fully-cached run must not poison the manifest with unrendered widths (regression: every-other-build re-render)', async () => {
+    // Run 1: an 800px source renders 320+640 only. Run 2: nothing to do —
+    // sharp stays unloaded, and the manifest must keep recording exactly
+    // what exists on disk, NOT the planner's full matrix (that poisoning
+    // made run 3 see phantom variants "missing" and re-render everything,
+    // alternating forever). Run 3 proves convergence.
+    const config = {
+      widths: [320, 640, 960, 1280, 1920, 2560],
+      formats: ['webp'],
+      quality: { webp: 75 },
+    };
+    ctx = await makeRun({ sourceImages: { 'hero.jpg': { width: 800, height: 600 } } });
+    const args = () => ({
+      jobs: planVariantJobsFromFlatDir({ siteImgDir: ctx.fixture.imgDir, config }),
+      cacheDir: ctx.cacheDir,
+      manifestPath: ctx.manifestPath,
+      currentConfig: config,
+      log: noop,
+    });
+
+    const r1 = await reconcileVariantCache(args());
+    expect(r1.generated).toBe(2);
+    const manifestAfter1 = JSON.parse(fs.readFileSync(ctx.manifestPath, 'utf-8'));
+    expect(manifestAfter1.sources['img/hero.jpg'].variants).toHaveLength(2);
+
+    const r2 = await reconcileVariantCache(args());
+    expect(r2.generated).toBe(0);
+    const manifestAfter2 = JSON.parse(fs.readFileSync(ctx.manifestPath, 'utf-8'));
+    expect(manifestAfter2.sources).toEqual(manifestAfter1.sources);
+
+    const r3 = await reconcileVariantCache(args());
+    expect(r3.generated).toBe(0);
+  });
 });

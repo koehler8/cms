@@ -184,7 +184,7 @@ async function main() {
 
   console.log(`${TAG} ~${estRoutes} routes → ${N} shards of ≤${opts.shardSize}, ${opts.heap} MB heap each, ${opts.concurrency === 1 ? 'sequential' : `${opts.concurrency}-way parallel`}. Peak heap is bounded per shard.`);
   if (opts.concurrency > 1) {
-    console.warn(`${TAG} warning: --concurrency > 1 is experimental — parallel shards race on the plugin's shared site-root writes and raise peak memory. Sequential is recommended.`);
+    console.warn(`${TAG} warning: --concurrency > 1 is experimental — parallel shards race on the plugin's shared site-root writes AND on the shared image-variant cache (node_modules/.cache/@koehler8/cms/image-variants: concurrent evictions, duplicate renders, last-writer-wins manifest), and raise peak memory. Sequential is recommended.`);
   }
 
   const tmp = path.join(CWD, '.cms-ssg');

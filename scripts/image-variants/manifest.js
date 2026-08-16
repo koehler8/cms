@@ -33,7 +33,12 @@ export function readManifest(manifestPath) {
 }
 
 export function writeManifest(manifestPath, manifest) {
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  // Write-to-temp-then-rename: an interrupted run must never leave a
+  // truncated manifest (readManifest would recover, but at the cost of a
+  // full regeneration).
+  const tmpPath = `${manifestPath}.tmp-${process.pid}`;
+  fs.writeFileSync(tmpPath, JSON.stringify(manifest, null, 2));
+  fs.renameSync(tmpPath, manifestPath);
 }
 
 /**

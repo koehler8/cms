@@ -77,11 +77,7 @@ export async function reconcileVariantCache({
       && previous.mtimeMs >= sourceMtime
       && previousVariants.every((v) => fs.existsSync(path.join(cacheDir, v)));
 
-    if (allCached) {
-      plannedRenders.push({ job, sourceMtime, render: false });
-    } else {
-      plannedRenders.push({ job, sourceMtime, render: true });
-    }
+    plannedRenders.push({ job, sourceMtime, render: !allCached, previousVariants });
   }
 
   const renderJobs = plannedRenders.filter((p) => p.render);
@@ -109,8 +105,16 @@ export async function reconcileVariantCache({
   // would otherwise exist. The pipeline's natural fallback to the bare
   // `img/{name}.{ext}` URL (which exists because the original is in the
   // flat dir) covers tiny sources where no variant width fits.
+  // Only computed for jobs that actually render — a cached job's truth is
+  // `previousVariants` (what an earlier run really wrote). Computing this
+  // filter for cached jobs used to poison the manifest: with no render work
+  // sharp stays unloaded, sourceWidth degraded to MAX_SAFE_INTEGER, and the
+  // manifest recorded the full unfiltered planner matrix — 9 phantom files
+  // for every under-width source — forcing a full re-render every other
+  // build.
   const filteredOutputsByJob = new Map();
-  for (const { job } of plannedRenders) {
+  for (const { job, render } of plannedRenders) {
+    if (!render) continue;
     let sourceWidth = Number.MAX_SAFE_INTEGER;
     if (sharp) {
       try {
@@ -125,22 +129,30 @@ export async function reconcileVariantCache({
     filteredOutputsByJob.set(job.sourceKey, kept);
   }
 
-  for (const { job, sourceMtime, render } of plannedRenders) {
+  // What each rendered job actually produced. The manifest records only
+  // successful writes: a failed render must never be asserted as an
+  // existing variant. (A transiently-failed output is retried when the
+  // source mtime or config next changes; a permanently-broken source stops
+  // forcing a full re-render on every build.)
+  const successfulByJob = new Map();
+  for (const { job, render, previousVariants } of plannedRenders) {
     if (!render) {
-      skipped += (filteredOutputsByJob.get(job.sourceKey) || job.outputs).length;
+      skipped += previousVariants.length;
       continue;
     }
     const outputs = filteredOutputsByJob.get(job.sourceKey) || job.outputs;
+    const successes = [];
     for (const output of outputs) {
       const outPath = path.join(cacheDir, output.cacheRelPath);
       try {
         await renderOutput(sharp, job.sourcePath, { ...output, outPath }, currentConfig);
         generated += 1;
+        successes.push(output.cacheRelPath);
       } catch (err) {
         log(`failed ${output.cacheRelPath}: ${err.message}`);
       }
     }
-    void sourceMtime;
+    successfulByJob.set(job.sourceKey, successes);
   }
 
   // Evict any cached variants that the source can no longer fulfill
@@ -164,11 +176,12 @@ export async function reconcileVariantCache({
     config: currentConfig,
     sources: {},
   };
-  for (const { job, sourceMtime } of plannedRenders) {
-    const outputs = filteredOutputsByJob.get(job.sourceKey) || job.outputs;
+  for (const { job, sourceMtime, render, previousVariants } of plannedRenders) {
     newManifest.sources[job.sourceKey] = {
       mtimeMs: sourceMtime,
-      variants: outputs.map((o) => o.cacheRelPath),
+      // Cached job → carry forward what actually exists on disk; rendered
+      // job → record only what this run successfully wrote.
+      variants: render ? (successfulByJob.get(job.sourceKey) || []) : previousVariants,
     };
   }
   writeManifest(manifestPath, newManifest);

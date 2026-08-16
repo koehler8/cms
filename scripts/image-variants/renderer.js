@@ -37,5 +37,15 @@ export async function renderOutput(sharp, sourcePath, output, config) {
       throw new Error(`unsupported format: ${format}`);
   }
 
-  await pipeline.toFile(outPath);
+  // Render to a temp path and rename: a killed run must never leave a
+  // truncated image that reconciliation would then trust as a valid variant
+  // (it validates presence, not bytes).
+  const tmpPath = `${outPath}.tmp-${process.pid}`;
+  try {
+    await pipeline.toFile(tmpPath);
+    await fs.promises.rename(tmpPath, outPath);
+  } catch (err) {
+    await fs.promises.rm(tmpPath, { force: true });
+    throw err;
+  }
 }
