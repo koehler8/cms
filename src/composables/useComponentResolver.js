@@ -52,6 +52,15 @@ export function useComponentResolver({ componentKeys, pageContent, currentPage, 
           name = entry;
         }
 
+        // Source-qualified string syntax ("site:Name", "slug:Name") — same
+        // meaning as a { name, source } object entry. Component names can
+        // never contain a colon (^[A-Z][A-Za-z0-9]+$), so the split is safe.
+        if (!source && name.includes(':')) {
+          const splitAt = name.indexOf(':');
+          source = name.slice(0, splitAt);
+          name = name.slice(splitAt + 1);
+        }
+
         if (!enabled) return null;
 
         let normalizedSource = normalizeSourceKey(source) || null;
