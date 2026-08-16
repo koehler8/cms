@@ -98,7 +98,7 @@ Published to the **public npm registry** (`registry.npmjs.org`) — not GitHub P
 
 The package ships as **source** (see the `files` field and the `exports` map pointing at `./src/*`), so `npm publish` just packs those files — no build step. The publish workflow's `test` job runs `npm ci --ignore-scripts` + the full Vitest suite and asserts the tag matches `package.json` before the `publish` job runs.
 
-**Auth (`NPM_TOKEN` secret):** must be a valid npm token with publish rights to `@koehler8/cms`. If it expires, `npm publish` fails with a **misleading `E404` on the `PUT`** (npm returns 404, not 401, for an under-authorized scoped publish). Rotate it: create a **classic Automation token** (non-expiring, bypasses 2FA) at npmjs.com → `gh secret set NPM_TOKEN --repo koehler8/cms` → `gh run rerun <failed-run-id>` (the tag is already pushed; no re-tag needed).
+**Auth (OIDC trusted publishing, since 1.0.0):** no `NPM_TOKEN` secret — the workflow authenticates with its GitHub Actions OIDC identity (`permissions: id-token: write`), configured on npmjs.com under the package's **Settings → Trusted Publisher** (org `koehler8`, repo `cms`, workflow `publish.yml`). Same setup on `cms-ext-compliance`. The runner upgrades npm to 11 first (OIDC needs ≥ 11.5; the pinned Node 20.19 ships 10.8). Publishes carry provenance attestations automatically. Nothing to rotate; if a publish ever fails with an auth-shaped error, check the Trusted Publisher config on npmjs.com matches the repo/workflow names (know that npm reports scoped-publish auth failures as a **misleading `E404` on the `PUT`**, not 401). Changing publisher settings on npmjs.com prompts for the security key — that's Chris's step.
 
 ## Key Files for Common Tasks
 
