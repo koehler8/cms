@@ -121,6 +121,73 @@ tag↔`package.json` version match, on the Node version from `.nvmrc`.
   SHA-256 hash in the bundle, content in hydration JSON — pre-launch
   convenience, not access control).
 
+### Stabilization batch — tooling that tells the truth, a11y, coverage
+
+All verified end-to-end: full unit suite (720 tests / 56 files), a real SSG
+build of a validation site against this tree, rendered-output inspection,
+and live browser checks (hydration, focus trap, draft unlock).
+
+**Failures are loud now:**
+
+- A route whose page config fails to load during pre-render FAILS the build
+  (machine-grepable marker scanned by `cms-ssg-build`); previously it
+  shipped chrome around an empty `<main>` on a green build. The shard merge
+  also exits 1 instead of warning when no shard rendered the home page, and
+  the merged `dist/` gets a final blank-page scan.
+- **Unknown `components[]` references fail the build** with page, locale,
+  index, and a did-you-mean suggestion — closing the fleet's #1 authoring
+  trap (production silently dropped the section). Fleet-audited: zero
+  violations exist today. Source-qualified strings (`site:Name`,
+  `slug:Name`) now also work at runtime, matching the documented syntax.
+- `cms-validate-extensions` / `cms-validate-themes` actually validate the
+  site now (site-local `extensions/` + named packages; bundled + site-local
+  themes) through the same implementation the plugin runs at build, and
+  exit non-zero on failure. Previously both always exited 0 without
+  checking anything of the site's.
+- The contact form: an unconfigured form (no `form.action`) renders
+  disabled and says so instead of posting to the page URL and claiming
+  success; the plugin warns at build time; network failures keep the
+  visitor's typed message; the anti-spam challenge no longer causes a
+  hydration mismatch on every load; one aria-live region instead of two.
+- The draft gate over plain HTTP says "requires a secure connection"
+  instead of calling the correct password incorrect.
+
+**Accessibility (backing the AA claim):**
+
+- New `useFocusTrap` composable: DraftGate declared `aria-modal` without
+  trapping Tab — it traps now (verified in a live browser); ComingSoonModal
+  and IntroGate drop their duplicated private implementations.
+- `prefers-reduced-motion` coverage completed (IntroGate, ComingSoonModal,
+  ComingSoon, StickyCTA, Portfolio) and bare `:focus` hover-pairs converted
+  to `:focus-visible`.
+- DraftGate and NotFound are themeable: every theme manifest now feeds
+  `--brand-text` / `--brand-surface` (+muted/elevated/border), which the
+  two components consumed but nothing ever defined.
+
+**Correctness & performance:**
+
+- Image-variant cache: fixed the manifest poisoning that re-encoded every
+  under-width source on alternating builds; failed renders are no longer
+  recorded as existing; manifest and image writes are atomic.
+- Responsive-image widths come from the pipeline's resolved matrix via the
+  virtual config — components can no longer request widths that don't
+  exist (About shipped a one-entry srcset for a 66vw slot).
+- Multi-locale sitemaps emit every locale version as its own `<url>` entry;
+  JSON-LD sinks are `</script>`-breakout-safe and the Organization block is
+  real JSON (a `"` in a site title no longer ships as `&quot;`);
+  `og:locale` (+alternates) emitted; manifest icon stops claiming
+  `maskable`.
+- Dev sessions stop churning git-tracked files: SEO files write only on
+  change and are never deleted mid-session; image edits trigger one reload
+  instead of two; the dev-server flag actually works under Vite 8.
+- The framework version reaches the bundle as a compile-time constant —
+  the full package.json (deps, exports map) no longer ships as a string in
+  every site's main chunk.
+
+**Coverage:** first real component tests (DraftGate, NotFound, Spacer +
+aliases, the externally-consumed `ui/` trio, Contact), router-guard branch
+tests, and a resolver spec. 720 tests across 56 files.
+
 ### Remaining before the v1.0.0 tag (release-day mechanics)
 
 - [ ] Release `@koehler8/cms-ext-compliance` 1.0.0 and bump the site
