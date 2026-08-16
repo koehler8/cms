@@ -98,7 +98,7 @@ describe('usePageConfig — synchronous first render (white-flash fix)', () => {
     // The server rendered the base locale (no localStorage on the server).
     primeConfigSync(undefined, makeConfig(['Hero'], { headline: 'Hello' }));
     // A returning visitor previously chose "de".
-    localStorage.setItem('locale', 'de');
+    localStorage.setItem('cms_locale', 'de');
     loaderSpy.mockResolvedValue(makeConfig(['Hero', 'LocaleBanner'], { headline: 'Hallo' }));
 
     const wrapper = mountPage();

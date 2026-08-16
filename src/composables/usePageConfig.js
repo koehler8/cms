@@ -1,5 +1,6 @@
 import { onServerPrefetch, ref, watch } from 'vue';
 import { loadConfigData, mergeConfigTrees, peekConfigSync } from '../utils/loadConfig.js';
+import { readStoredLocale } from '../utils/webStorage.js';
 
 function normalizePath(value) {
   if (!value || typeof value !== 'string') return '/';
@@ -233,13 +234,8 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
     //     when no explicit locale is passed, so the same reload resolves it.)
     let needsFullReload = Boolean(primed && primed.pagesPartial);
 
-    if (localeForConfig === undefined && typeof localStorage !== 'undefined') {
-      let stored = '';
-      try {
-        stored = (localStorage.getItem('locale') || '').trim().toLowerCase();
-      } catch {
-        stored = '';
-      }
+    if (localeForConfig === undefined) {
+      const stored = (readStoredLocale() || '').trim().toLowerCase();
       if (stored) needsFullReload = true;
     }
 

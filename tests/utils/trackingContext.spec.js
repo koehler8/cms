@@ -20,7 +20,7 @@ describe('trackingContext', () => {
 
       persistAttributionFromLocation();
 
-      const stored = JSON.parse(sessionStorage.getItem('app_attribution_v1'));
+      const stored = JSON.parse(sessionStorage.getItem('cms_attribution_v1'));
       expect(stored.utm_source).toBe('twitter');
       expect(stored.utm_medium).toBe('social');
       expect(stored.utm_campaign).toBe('launch');
@@ -35,7 +35,7 @@ describe('trackingContext', () => {
 
       persistAttributionFromLocation();
 
-      const stored = JSON.parse(sessionStorage.getItem('app_attribution_v1'));
+      const stored = JSON.parse(sessionStorage.getItem('cms_attribution_v1'));
       expect(stored.utm_source).toBe('direct');
       expect(stored.utm_medium).toBe('none');
     });
@@ -49,7 +49,7 @@ describe('trackingContext', () => {
 
       persistAttributionFromLocation();
 
-      const stored = JSON.parse(sessionStorage.getItem('app_attribution_v1'));
+      const stored = JSON.parse(sessionStorage.getItem('cms_attribution_v1'));
       expect(stored.landing_path).toBe('/about');
     });
 
@@ -62,7 +62,7 @@ describe('trackingContext', () => {
 
       persistAttributionFromLocation();
 
-      const sessionId = sessionStorage.getItem('app_session_id');
+      const sessionId = sessionStorage.getItem('cms_session_id');
       expect(sessionId).toBeTruthy();
     });
 
@@ -74,11 +74,11 @@ describe('trackingContext', () => {
       });
 
       persistAttributionFromLocation();
-      const stored1 = JSON.parse(sessionStorage.getItem('app_attribution_v1'));
+      const stored1 = JSON.parse(sessionStorage.getItem('cms_attribution_v1'));
       const firstTouch = stored1.first_touch_timestamp;
 
       persistAttributionFromLocation();
-      const stored2 = JSON.parse(sessionStorage.getItem('app_attribution_v1'));
+      const stored2 = JSON.parse(sessionStorage.getItem('cms_attribution_v1'));
       expect(stored2.first_touch_timestamp).toBe(firstTouch);
     });
   });
@@ -115,7 +115,7 @@ describe('trackingContext', () => {
       const ctx = getAnalyticsContext();
       expect(ctx.session_id).toBeTruthy();
       // Should persist it
-      expect(sessionStorage.getItem('app_session_id')).toBe(ctx.session_id);
+      expect(sessionStorage.getItem('cms_session_id')).toBe(ctx.session_id);
     });
   });
 });

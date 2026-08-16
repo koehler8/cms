@@ -31,17 +31,17 @@ describe('cookieConsent', () => {
     });
 
     it('returns ACCEPTED when stored', () => {
-      localStorage.setItem('cookie_consent', 'accepted');
+      localStorage.setItem('cms_cookie_consent', 'accepted');
       expect(getConsentStatus()).toBe(ConsentStatus.ACCEPTED);
     });
 
     it('returns DECLINED when stored', () => {
-      localStorage.setItem('cookie_consent', 'declined');
+      localStorage.setItem('cms_cookie_consent', 'declined');
       expect(getConsentStatus()).toBe(ConsentStatus.DECLINED);
     });
 
     it('returns PENDING for unknown values', () => {
-      localStorage.setItem('cookie_consent', 'invalid');
+      localStorage.setItem('cms_cookie_consent', 'invalid');
       expect(getConsentStatus()).toBe(ConsentStatus.PENDING);
     });
   });
@@ -49,12 +49,12 @@ describe('cookieConsent', () => {
   describe('setConsentStatus', () => {
     it('stores status in localStorage', () => {
       setConsentStatus(ConsentStatus.ACCEPTED);
-      expect(localStorage.getItem('cookie_consent')).toBe('accepted');
+      expect(localStorage.getItem('cms_cookie_consent')).toBe('accepted');
     });
 
     it('stores timestamp', () => {
       setConsentStatus(ConsentStatus.ACCEPTED);
-      const timestamp = localStorage.getItem('cookie_consent_timestamp');
+      const timestamp = localStorage.getItem('cms_cookie_consent_timestamp');
       expect(timestamp).toBeTruthy();
       expect(new Date(timestamp).getTime()).not.toBeNaN();
     });

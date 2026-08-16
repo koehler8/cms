@@ -121,6 +121,7 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, useSlots, 
 import { trackEvent } from '../utils/analytics.js';
 import { getExtensionComponent } from '../extensions/extensionLoader.js';
 import { availableLocales as siteLocales, baseLocale as siteBaseLocale } from '../utils/loadConfig.js';
+import { readStoredLocale, writeStoredLocale } from '../utils/webStorage.js';
 
   const slots = useSlots();
   const hasActionsSlot = computed(() => Boolean(slots.actions));
@@ -434,16 +435,14 @@ const updateLocaleMenuPosition = () => {
     // the base locale navigates to `/` (no param), so the write must
     // happen here instead. Also keeps loadConfigData's localStorage
     // fallback in sync with the active selection.
-    if (!import.meta.env.SSR && typeof localStorage !== 'undefined') {
-      try {
-        localStorage.setItem('locale', locale);
-      } catch {}
+    if (!import.meta.env.SSR) {
+      writeStoredLocale(locale);
     }
   };
 
   onMounted(() => {
     handleHeaderScroll();
-    const loc = (route.params.locale || (typeof localStorage !== 'undefined' && localStorage.getItem('locale')) || 'en').toString();
+    const loc = (route.params.locale || readStoredLocale() || 'en').toString();
     currentLocale.value = loc;
     document.addEventListener('click', onDocumentClick);
     setupLogoFlash();

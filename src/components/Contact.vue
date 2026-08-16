@@ -140,6 +140,7 @@
 <script setup>
 import { computed, inject, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { trackEvent } from '../utils/analytics.js';
+import { readStoredLocale } from '../utils/webStorage.js';
 
 const title = ref('Contact Us')
 const subtitle = ref("Send us a message and we'll keep you updated.")
@@ -155,11 +156,7 @@ const errorMessage = ref('Sorry—something went wrong. Please try again.')
 const SUBMISSION_TOKEN = '';
 
 function getTrackedLocale() {
-  try {
-    const stored = localStorage.getItem('locale');
-    if (stored) return stored;
-  } catch (_) {}
-  return 'default';
+  return readStoredLocale() || 'default';
 }
 
 const placeholders = reactive({

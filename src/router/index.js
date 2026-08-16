@@ -4,6 +4,7 @@ import { h } from 'vue';
 import Home from '../components/Home.vue';
 
 import { availableLocales, baseLocale } from '../utils/loadConfig.js';
+import { readStoredLocale, writeStoredLocale } from '../utils/webStorage.js';
 
 // Test for `/{baseLocale}` or `/{baseLocale}/...` paths — these no longer
 // pre-render or match the locale layout (the canonical URL for the base
@@ -127,9 +128,7 @@ export function applyRouterGuards(router, localePrefixes = computeLocalePrefixes
         try {
           document.documentElement.lang = normalized;
         } catch {}
-        try {
-          localStorage.setItem('locale', normalized);
-        } catch {}
+        writeStoredLocale(normalized);
       }
 
       return;
@@ -143,10 +142,7 @@ export function applyRouterGuards(router, localePrefixes = computeLocalePrefixes
       // detection. This prevents the bug where clicking "EN" on /de
       // navigates to / and the auto-detect bounces back to /de because
       // the browser is set to German.
-      let storedPreference = '';
-      try {
-        storedPreference = (localStorage.getItem('locale') || '').toString().toLowerCase();
-      } catch {}
+      const storedPreference = (readStoredLocale() || '').toString().toLowerCase();
       if (storedPreference) return;
 
       const navLang = (navigator.language || navigator.userLanguage || '').toString();

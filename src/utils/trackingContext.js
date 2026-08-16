@@ -1,5 +1,7 @@
-const ATTR_STORAGE_KEY = 'app_attribution_v1';
-const SESSION_STORAGE_KEY = 'app_session_id';
+import { STORAGE_KEYS, readStorage, writeStorage } from './webStorage.js';
+
+const ATTRIBUTION = STORAGE_KEYS.attribution;
+const SESSION_ID = STORAGE_KEYS.sessionId;
 
 function generateSessionId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -8,28 +10,22 @@ function generateSessionId() {
   return `sess_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 }
 
-function readStoredJson(key, fallback = {}) {
-  if (typeof window === 'undefined') return { ...fallback };
+function readStoredJson(entry, fallback = {}) {
   try {
-    const raw = window.sessionStorage.getItem(key);
+    const raw = readStorage(entry.kind, entry.key, entry.legacy);
     if (!raw) return { ...fallback };
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object') {
       return { ...fallback, ...parsed };
     }
   } catch (error) {
-    console.warn('[trackingContext] Failed to read storage key', key, error);
+    console.warn('[trackingContext] Failed to read storage key', entry.key, error);
   }
   return { ...fallback };
 }
 
-function writeStoredJson(key, value) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.sessionStorage.setItem(key, JSON.stringify(value));
-  } catch (error) {
-    console.warn('[trackingContext] Failed to write storage key', key, error);
-  }
+function writeStoredJson(entry, value) {
+  writeStorage(entry.kind, entry.key, JSON.stringify(value));
 }
 
 function detectDeviceType(userAgent = '') {
@@ -65,7 +61,7 @@ export function persistAttributionFromLocation() {
   if (typeof window === 'undefined') return;
 
   const params = new URLSearchParams(window.location.search || '');
-  const stored = readStoredJson(ATTR_STORAGE_KEY, {});
+  const stored = readStoredJson(ATTRIBUTION, {});
 
   const next = { ...stored };
 
@@ -93,15 +89,15 @@ export function persistAttributionFromLocation() {
     next.referrer = document.referrer;
   }
 
-  writeStoredJson(ATTR_STORAGE_KEY, next);
+  writeStoredJson(ATTRIBUTION, next);
 
-  if (!window.sessionStorage.getItem(SESSION_STORAGE_KEY)) {
-    window.sessionStorage.setItem(SESSION_STORAGE_KEY, generateSessionId());
+  if (!readStorage(SESSION_ID.kind, SESSION_ID.key, SESSION_ID.legacy)) {
+    writeStorage(SESSION_ID.kind, SESSION_ID.key, generateSessionId());
   }
 }
 
 export function getAnalyticsContext(overrides = {}) {
-  const attribution = readStoredJson(ATTR_STORAGE_KEY, {
+  const attribution = readStoredJson(ATTRIBUTION, {
     utm_source: 'direct',
     utm_medium: 'none',
     utm_campaign: '',
@@ -113,12 +109,10 @@ export function getAnalyticsContext(overrides = {}) {
   let sessionId = '';
   if (typeof window !== 'undefined') {
     sessionId =
-      window.sessionStorage.getItem(SESSION_STORAGE_KEY) ||
+      readStorage(SESSION_ID.kind, SESSION_ID.key, SESSION_ID.legacy) ||
       (() => {
         const fresh = generateSessionId();
-        try {
-          window.sessionStorage.setItem(SESSION_STORAGE_KEY, fresh);
-        } catch {}
+        writeStorage(SESSION_ID.kind, SESSION_ID.key, fresh);
         return fresh;
       })();
   }

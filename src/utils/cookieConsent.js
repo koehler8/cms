@@ -3,8 +3,10 @@
  * Handles storing and retrieving user consent for analytics tracking
  */
 
-const CONSENT_KEY = 'cookie_consent';
-const CONSENT_TIMESTAMP_KEY = 'cookie_consent_timestamp';
+import { STORAGE_KEYS, readStorage, writeStorage } from './webStorage.js';
+
+const CONSENT = STORAGE_KEYS.consent;
+const CONSENT_TIMESTAMP = STORAGE_KEYS.consentTimestamp;
 const TRUTHY_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
 
 export const ConsentStatus = {
@@ -39,16 +41,11 @@ export function isCookieBannerEnabled() {
  * @returns {string} One of ConsentStatus values
  */
 export function getConsentStatus() {
-  try {
-    const consent = localStorage.getItem(CONSENT_KEY);
-    if (consent === ConsentStatus.ACCEPTED || consent === ConsentStatus.DECLINED) {
-      return consent;
-    }
-    return ConsentStatus.PENDING;
-  } catch (error) {
-    console.warn('Unable to access localStorage for consent:', error);
-    return ConsentStatus.PENDING;
+  const consent = readStorage(CONSENT.kind, CONSENT.key, CONSENT.legacy);
+  if (consent === ConsentStatus.ACCEPTED || consent === ConsentStatus.DECLINED) {
+    return consent;
   }
+  return ConsentStatus.PENDING;
 }
 
 /**
@@ -56,14 +53,17 @@ export function getConsentStatus() {
  * @param {string} status - One of ConsentStatus values
  */
 export function setConsentStatus(status) {
+  const saved = writeStorage(CONSENT.kind, CONSENT.key, status);
+  writeStorage(CONSENT_TIMESTAMP.kind, CONSENT_TIMESTAMP.key, new Date().toISOString());
+  if (!saved) {
+    console.warn('Unable to persist consent status (storage unavailable)');
+  }
+
   try {
-    localStorage.setItem(CONSENT_KEY, status);
-    localStorage.setItem(CONSENT_TIMESTAMP_KEY, new Date().toISOString());
-    
     // Trigger custom event for other parts of the app to react
     window.dispatchEvent(new CustomEvent('consentChanged', { detail: { status } }));
-  } catch (error) {
-    console.error('Unable to save consent status:', error);
+  } catch {
+    /* no window (SSR) */
   }
 }
 

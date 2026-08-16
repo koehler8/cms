@@ -1,5 +1,6 @@
 import { inflateFlatConfig } from './inflateFlatConfig.js';
 import { unwrapDefault } from './unwrapDefault.js';
+import { readStoredLocale } from './webStorage.js';
 
 function normalizeLocaleInput(value) {
     if (value === undefined || value === null) {
@@ -283,12 +284,8 @@ export function createConfigLoader(allModules) {
 
         let locale = explicitLocale;
 
-        if (!locale && typeof localStorage !== 'undefined') {
-            try {
-                locale = normalizeLocaleInput(localStorage.getItem('locale')) || undefined;
-            } catch {
-                locale = undefined;
-            }
+        if (!locale) {
+            locale = normalizeLocaleInput(readStoredLocale()) || undefined;
         }
 
         const normalizedLocale = typeof locale === 'string' ? locale.toLowerCase() : undefined;
