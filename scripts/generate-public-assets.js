@@ -6,13 +6,35 @@
 // {CMS_SITE_DIR}/content/{baseLocale}/site.json, output is written to
 // {dirname(CMS_SITE_DIR)}/public/.
 
-import 'dotenv/config';
-
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createCanvas, registerFont } from 'canvas';
-import pngToIco from 'png-to-ico';
+
+// dotenv is optional — without it, config comes from the process environment.
+try {
+  await import('dotenv/config');
+} catch {
+  /* optional dependency not installed */
+}
+
+// canvas (native) and png-to-ico are optionalDependencies: npm skips them
+// when their platform build fails, so a consumer that never runs this
+// command still installs cleanly. This command DOES need them — fail loudly
+// with the fix instead of a bare module-not-found stack.
+let createCanvas;
+let registerFont;
+let pngToIco;
+try {
+  ({ createCanvas, registerFont } = await import('canvas'));
+  ({ default: pngToIco } = await import('png-to-ico'));
+} catch (err) {
+  console.error('❌ cms-generate-public-assets requires the optional dependencies `canvas` and `png-to-ico`.');
+  console.error('   They were skipped (or failed to build) during install — canvas is a native module');
+  console.error('   and needs system libraries (cairo, pango) on platforms without prebuilds.');
+  console.error('   Install them explicitly:  npm install canvas png-to-ico');
+  console.error(`   Underlying error: ${err.message}`);
+  process.exit(1);
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -216,4 +216,4 @@ For example, on an English-base site: `Source: /en/<*>  Target: /<*>  Status: 30
 
 - **No pre-bundling for vue/vue-router/pinia**: These are excluded from Vite's optimizer to prevent duplicate module instances when extensions are linked.
 - **cookieConsent analytics default**: `shouldEnableAnalytics()` returns true when consent is pending (analytics load before explicit consent). See the GDPR note in that file.
-- **canvas dependency**: Required only by `generate-public-assets` (PNG/ICO generation); native module needing system libs (cairo, pango, etc.) on platforms without prebuilds. Candidate for optionalDependencies at/after v1 (review R8).
+- **canvas dependency**: `optionalDependency` (with `png-to-ico`, `dotenv`) used only by `generate-public-assets`. npm skips it if its native build fails (needs cairo/pango on platforms without prebuilds) — installs stay green, and the command itself fails loudly with install instructions when it's missing.

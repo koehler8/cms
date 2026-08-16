@@ -79,11 +79,13 @@
     "@unhead/vue": "^2.1.15",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
+    "pinia": "^3.0.1",
+    "sharp": "^0.35.3"
+  },
+  "optionalDependencies": {
     "canvas": "^3.2.0",
     "dotenv": "^17.2.3",
-    "pinia": "^3.0.1",
-    "png-to-ico": "^3.0.1",
-    "sharp": "^0.35.3"
+    "png-to-ico": "^3.0.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.8",
