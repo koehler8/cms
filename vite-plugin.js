@@ -24,6 +24,7 @@ import {
   planVariantJobsFromFlatDir,
   reconcileVariantCache,
 } from './scripts/image-variants/index.js';
+import { validateExtensionManifests } from './scripts/lib/extension-manifests.mjs';
 
 // ---- Helpers ----
 
@@ -351,9 +352,10 @@ function discoverExtensionCjsDeps(extensionPackages, projectRoot) {
 }
 
 // Build-time extension-manifest validation lives in scripts/lib so the
-// cms-validate-extensions CLI shares the exact same implementation.
-// Re-exported here for tests and API stability.
-export { validateExtensionManifests } from './scripts/lib/extension-manifests.mjs';
+// cms-validate-extensions CLI shares the exact same implementation. Imported
+// above (a bare `export ... from` re-export would not bind the name for the
+// plugin's own use) and re-exported here for tests and API stability.
+export { validateExtensionManifests };
 
 // List every *.vue basename under a directory (recursive). Mirrors the
 // import.meta.glob discovery the runtime registries use.
