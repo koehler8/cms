@@ -181,7 +181,14 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
       applyConfig(cachedConfig);
     } catch (error) {
       if (requestId !== activeRequest) return;
-      if (import.meta.env.DEV) {
+      if (import.meta.env.SSR) {
+        // Machine-grepable marker: cms-ssg-build scans captured child output
+        // for this exact string and FAILS the build. A page whose config
+        // didn't load during pre-render must never ship silently as chrome
+        // around an empty <main> — the empty-root detector can't see it,
+        // because the shell (skip link, header, footer) still renders.
+        console.error(`[cms-ssg] PAGE CONFIG LOAD FAILED locale=${localeKey}`, error);
+      } else if (import.meta.env.DEV) {
         console.error('[PageRenderer] Failed to load page configuration', error);
       }
       currentPage.value = { id: '', path: '/', components: [], content: {}, meta: {}, draft: undefined };

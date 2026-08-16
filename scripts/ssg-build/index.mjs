@@ -82,6 +82,11 @@ function estimateRouteCount(siteDir) {
   return pages * locales + 1; // + /404
 }
 
+// Emitted by usePageConfig's SSR catch (see src/composables/usePageConfig.js).
+// Its presence in a child's output means at least one route pre-rendered with
+// no page content — a failure even when vite-ssg exits 0.
+const CONFIG_FAIL_MARKER = 'PAGE CONFIG LOAD FAILED';
+
 function resolveViteSsgBin() {
   const local = path.join(CWD, 'node_modules', '.bin', 'vite-ssg');
   return fs.existsSync(local) ? local : 'vite-ssg';
@@ -143,9 +148,13 @@ async function mergeShards(shardDirs, finalDist) {
   }
   if (renderedHome != null) {
     await fsp.writeFile(path.join(finalDist, 'index.html'), renderedHome, 'utf8');
-  } else {
-    console.warn(`${TAG} warning: no shard produced a server-rendered home page; dist/index.html left as the client shell.`);
+    return true;
   }
+  // A client-shell homepage is blank for crawlers and until JS boots — that
+  // is a failed build, not a warning (the empty-root detector can't catch a
+  // shell: it has no SSR comment node to match).
+  console.error(`${TAG} no shard produced a server-rendered home page; dist/index.html would be a client shell.`);
+  return false;
 }
 
 async function main() {
@@ -159,6 +168,10 @@ async function main() {
     const r = await runViteSsg({ heap: opts.heap, passthrough: opts.passthrough });
     process.stdout.write(r.out);
     if (r.code === 0) {
+      if (r.out.includes(CONFIG_FAIL_MARKER)) {
+        console.error(`${TAG} build exited 0 but at least one route failed to load its page config during pre-render (see "${CONFIG_FAIL_MARKER}" above). Failing the build.`);
+        process.exit(1);
+      }
       const empties = await findEmptyRenders(path.join(CWD, 'dist'));
       if (empties.length) {
         console.error(`${TAG} build succeeded but ${empties.length} page(s) rendered with an empty body — a known intermittent SSR race (see findEmptyRenders in this file). Re-run the build:`);
@@ -185,11 +198,20 @@ async function main() {
     process.stdout.write(`${TAG} shard ${s.k + 1}/${N} rendering…\n`);
     const r = await runViteSsg({ shard: `${s.k}/${N}`, outDir: s.outDir, heap: opts.heap, passthrough: opts.passthrough });
     let empties = [];
-    if (r.code === 0) {
+    const configFailed = r.code === 0 && r.out.includes(CONFIG_FAIL_MARKER);
+    if (r.code === 0 && !configFailed) {
       empties = await findEmptyRenders(path.join(CWD, s.outDir));
     }
-    const ok = r.code === 0 && empties.length === 0;
+    const ok = r.code === 0 && !configFailed && empties.length === 0;
     process.stdout.write(`${TAG} shard ${s.k + 1}/${N} ${ok ? 'ok' : 'FAILED'} (${((Date.now() - started) / 1000).toFixed(1)}s)\n`);
+    if (configFailed) {
+      return {
+        ...r,
+        code: 1,
+        out: `${r.out}\n${TAG} at least one route failed to load its page config during pre-render ("${CONFIG_FAIL_MARKER}").\n`,
+        k: s.k,
+      };
+    }
     if (empties.length) {
       return {
         ...r,
@@ -211,7 +233,17 @@ async function main() {
     process.exit(1);
   }
 
-  await mergeShards(shards.map((s) => path.join(CWD, s.outDir)), path.join(CWD, 'dist'));
+  const homeOk = await mergeShards(shards.map((s) => path.join(CWD, s.outDir)), path.join(CWD, 'dist'));
+  if (!homeOk) {
+    process.exit(1);
+  }
+  // Belt-and-suspenders: re-check the merged output as a whole.
+  const mergedEmpties = await findEmptyRenders(path.join(CWD, 'dist'));
+  if (mergedEmpties.length) {
+    console.error(`${TAG} merged dist/ contains ${mergedEmpties.length} empty-bodied page(s):`);
+    for (const f of mergedEmpties) console.error(`${TAG}   - ${f}`);
+    process.exit(1);
+  }
   await fsp.rm(tmp, { recursive: true, force: true });
   console.log(`${TAG} merged ${N} shards → dist/ in ${((Date.now() - t0) / 1000).toFixed(1)}s. Done.`);
 }
