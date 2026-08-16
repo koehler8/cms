@@ -36,15 +36,15 @@ my-site/
 Or scaffold all of it in one step:
 
 ```bash
-npx --package @koehler8/cms@^1.0.0-beta cms-create-site my-site
+npx --package @koehler8/cms@^1.0.0 cms-create-site my-site
 ```
 
 ### 2. Install
 
-Vertex CMS is published to the public npm registry (`registry.npmjs.org`) — no scope configuration needed. Install a pinned prerelease range (the package hasn't reached a stable `1.0.0` yet, so the unpinned `latest` dist-tag isn't current):
+Vertex CMS is published to the public npm registry (`registry.npmjs.org`) — no scope configuration needed:
 
 ```bash
-npm install @koehler8/cms@^1.0.0-beta vue vue-router vite vite-ssg @vitejs/plugin-vue
+npm install @koehler8/cms@^1.0.0 vue vue-router vite vite-ssg @vitejs/plugin-vue
 ```
 
 ### 3. Configure Vite

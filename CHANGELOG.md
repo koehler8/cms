@@ -1,11 +1,11 @@
 # Changelog
 
-## 1.0.0 (unreleased)
+## 1.0.0
 
-First stable release. The changes below are the release-readiness and
-breaking-window batches from the 2026-08-15 architecture review
-(`ARCHITECTURE-REVIEW.md`); the review's 1.0.x stabilization phase lands in
-patch releases.
+First stable release. The changes below are the three implementation batches
+from the 2026-08-15 architecture review (`ARCHITECTURE-REVIEW.md`):
+release-readiness blockers, the breaking-change window, and the
+stabilization pass.
 
 ### Breaking changes (the 1.0 window)
 
@@ -188,18 +188,19 @@ and live browser checks (hydration, focus trap, draft unlock).
 aliases, the externally-consumed `ui/` trio, Contact), router-guard branch
 tests, and a resolver spec. 720 tests across 56 files.
 
-### Remaining before the v1.0.0 tag (release-day mechanics)
+### Release notes
 
-- [ ] Release `@koehler8/cms-ext-compliance` 1.0.0 and bump the site
-      scaffold's pin (currently `^1.0.0-beta.4`).
-- [ ] Update the README install line from `@koehler8/cms@^1.0.0-beta` to
-      `@koehler8/cms@^1.0.0` together with `tests/docs/readme.spec.js`
-      (which currently asserts the beta-range convention).
-- [ ] `npm version 1.0.0 --no-git-tag-version`, finalize this entry, tag
-      `v1.0.0`, push — then verify `npm dist-tag ls` shows `latest: 1.0.0`
-      (latest has been frozen at `1.0.0-beta.5`, the first-ever publish).
-- [ ] Note: `1.0.0-beta.1`–`beta.4` were never published to npm;
-      `beta.5`–`beta.7` were published without changelog entries.
+- Cut alongside `@koehler8/cms-ext-compliance` 1.0.0; the site scaffold now
+  pins both at `^1.0.0`.
+- This release moves the `latest` dist-tag off `1.0.0-beta.5`, where it had
+  been frozen since the first-ever publish (all betas shipped under the
+  `beta` tag).
+- Consuming sites do not auto-upgrade: existing lockfiles keep beta.39
+  until each site bumps. Re-pin sites to `^1.0.0` as they're touched, and
+  give the first bumps a browser once-over (they pick up the
+  `trimInitialState` default and the component-gating changes).
+- Version-history note: `1.0.0-beta.1`–`beta.4` were never published to
+  npm; `beta.5`–`beta.7` were published without changelog entries.
 
 ## 1.0.0-beta.39
 

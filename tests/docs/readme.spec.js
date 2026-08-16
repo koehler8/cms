@@ -32,9 +32,9 @@ describe('README.md publish/install instructions', () => {
   });
 
   it('Quick Start install command does not use the bare (unpinned) @koehler8/cms specifier', () => {
-    // The bare specifier resolves to the `latest` dist-tag, which is frozen at
-    // 1.0.0-beta.5 (the first-ever publish) — see npm view @koehler8/cms dist-tags.
-    // Every `npm install ...` line that installs @koehler8/cms must pin a version/range.
+    // Every `npm install ...` line that installs @koehler8/cms pins an
+    // explicit range — reproducible instructions, and a guard against the
+    // pre-1.0 era when `latest` was frozen at the first-ever publish.
     const installLines = readme
       .split('\n')
       .filter((line) => /npm install .*@koehler8\/cms\b/.test(line));
@@ -46,8 +46,9 @@ describe('README.md publish/install instructions', () => {
     }
   });
 
-  it('pins the install to an explicit prerelease range consistent with the fleet convention', () => {
-    expect(readme).toMatch(/@koehler8\/cms@\^?1\.0\.0-beta/);
+  it('pins the install to the stable range, not a prerelease', () => {
+    expect(readme).toMatch(/@koehler8\/cms@\^?1\.0\.0/);
+    expect(readme).not.toMatch(/@koehler8\/cms@\^?1\.0\.0-beta/);
   });
 });
 
