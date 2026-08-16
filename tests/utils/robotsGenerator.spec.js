@@ -17,20 +17,24 @@ describe('buildRobotsTxt', () => {
 
   it('emits a single Disallow: / for site-wide draft', () => {
     const out = buildRobotsTxt({ site: { draft: true }, pages: {} });
-    expect(out).toContain('Disallow: /admin');
     expect(out).toContain('Disallow: /');
   });
 
-  it('emits Disallow lines for each draftPaths entry', () => {
+  // Draft URLs are deliberately kept OUT of robots.txt: the file is public, so
+  // a Disallow line is itself the discovery vector for an otherwise-unlinked
+  // draft URL — and a disallowed URL can't be crawled, so Google never sees
+  // the page's noindex meta ("Indexed, though blocked by robots.txt").
+  // Deindexing is handled by the noindex meta + sitemap omission + the gate.
+  it('does not disclose draftPaths prefixes', () => {
     const out = buildRobotsTxt({
       site: { draftPaths: ['/hidden', '/blog/2026'] },
       pages: {},
     });
-    expect(out).toContain('Disallow: /hidden');
-    expect(out).toContain('Disallow: /blog/2026');
+    expect(out).not.toContain('/hidden');
+    expect(out).not.toContain('/blog/2026');
   });
 
-  it('emits Disallow lines for each draft page', () => {
+  it('does not disclose per-page drafts', () => {
     const out = buildRobotsTxt({
       site: {},
       pages: {
@@ -39,27 +43,16 @@ describe('buildRobotsTxt', () => {
         wip: { path: '/projects/wip', draft: true },
       },
     });
-    expect(out).toContain('Disallow: /secret');
-    expect(out).toContain('Disallow: /projects/wip');
-    expect(out).not.toContain('Disallow: /\nDisallow:');
+    expect(out).not.toContain('/secret');
+    expect(out).not.toContain('/projects/wip');
   });
 
-  it('does not duplicate framework defaults that appear in draftPaths', () => {
-    const out = buildRobotsTxt({
-      site: { draftPaths: ['/admin', '/privacy'] },
-      pages: {},
-    });
-    const adminMatches = out.match(/Disallow: \/admin/g) || [];
-    expect(adminMatches.length).toBe(1);
-  });
-
-  it('omits per-path lines when site is fully draft', () => {
+  it('site-wide draft stays a blanket block with no per-path lines', () => {
     const out = buildRobotsTxt({
       site: { draft: true, draftPaths: ['/blog'] },
       pages: { secret: { path: '/secret', draft: true } },
     });
     expect(out).toContain('Disallow: /');
-    // /blog should not appear since the wildcard already covers it
     expect(out).not.toContain('Disallow: /blog');
     expect(out).not.toContain('Disallow: /secret');
   });
@@ -77,27 +70,6 @@ describe('buildRobotsTxt', () => {
   it('output ends with newline', () => {
     const out = buildRobotsTxt({ site: {}, pages: {} });
     expect(out.endsWith('\n')).toBe(true);
-  });
-
-  it('normalizes paths in draftPaths', () => {
-    const out = buildRobotsTxt({
-      site: { draftPaths: ['hidden/', '//double/'] },
-      pages: {},
-    });
-    expect(out).toContain('Disallow: /hidden');
-    expect(out).toContain('Disallow: /double');
-  });
-
-  it('sorts additional disallows alphabetically', () => {
-    const out = buildRobotsTxt({
-      site: { draftPaths: ['/zoo', '/apple'] },
-      pages: {
-        m: { path: '/middle', draft: true },
-      },
-    });
-    const tail = out.split('\n').filter((l) => l.startsWith('Disallow:'));
-    // First line is the /admin framework default, then sorted: /apple, /middle, /zoo
-    expect(tail.slice(1)).toEqual(['Disallow: /apple', 'Disallow: /middle', 'Disallow: /zoo']);
   });
 
   describe('site.robots.allowAiCrawlers', () => {
@@ -127,7 +99,7 @@ describe('buildRobotsTxt', () => {
       }
     });
 
-    it('gives each named crawler the same Disallow list as the wildcard block', () => {
+    it('gives each named crawler the same Disallow list as the wildcard block — and no draft paths', () => {
       const out = buildRobotsTxt({
         site: { robots: { allowAiCrawlers: true }, draftPaths: ['/hidden'] },
         pages: { secret: { path: '/secret', draft: true } },
@@ -135,8 +107,8 @@ describe('buildRobotsTxt', () => {
       const blocks = out.split(/\n\n+/);
       const claudeBlock = blocks.find((b) => b.includes('User-agent: ClaudeBot'));
       expect(claudeBlock).toContain('Disallow: /admin');
-      expect(claudeBlock).toContain('Disallow: /hidden');
-      expect(claudeBlock).toContain('Disallow: /secret');
+      expect(out).not.toContain('/hidden');
+      expect(out).not.toContain('/secret');
     });
 
     it('is skipped entirely when the whole site is in draft', () => {
@@ -146,7 +118,7 @@ describe('buildRobotsTxt', () => {
     });
 
     it('defaults to off when site.robots is absent', () => {
-      const out = buildRobotsTxt({ site: { draftPaths: ['/blog'] }, pages: {} });
+      const out = buildRobotsTxt({ site: {}, pages: {} });
       expect(out).not.toContain('User-agent: GPTBot');
     });
   });
@@ -192,8 +164,9 @@ describe('buildRobotsTxt', () => {
       }
     }
 
-    // Draft page is gated (in robots), never advertised (not in sitemap).
+    // Draft page: never advertised (not in sitemap), never disclosed (not in
+    // robots.txt at all — deindexing is noindex meta + gate, not Disallow).
     expect(sitemapPaths).not.toContain('/secret');
-    expect(disallows).toContain('/secret');
+    expect(robots).not.toContain('/secret');
   });
 });

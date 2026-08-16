@@ -3,17 +3,24 @@
  *
  * Replaces the static cms/public/robots.txt — the plugin writes this string
  * to siteRoot/public/robots.txt at config time so per-site draft state
- * (site.draft, site.draftPaths, page.draft) regenerates the disallow list on
- * every build.
+ * regenerates the policy on every build.
  *
  * Always disallows /admin (a non-public route that is never listed in the
  * sitemap). Compliance pages (/privacy, /terms, /cookies) are intentionally
  * NOT disallowed: they are public, footer-linked, emit correct canonicals, and
  * appear in sitemap.xml — disallowing them contradicts the sitemap and triggers
- * "Blocked by robots.txt" (pages-in-a-sitemap) errors in Search Console. Adds:
- *   - "Disallow: /" when site.draft === true
- *   - "Disallow: <prefix>" for each entry in site.draftPaths
- *   - "Disallow: <path>" for each page with draft === true
+ * "Blocked by robots.txt" (pages-in-a-sitemap) errors in Search Console.
+ *
+ * Draft pages and site.draftPaths prefixes are deliberately NOT disallowed
+ * here. robots.txt is public, so a per-path Disallow line is itself the
+ * discovery vector for an otherwise-unlinked draft URL — and a disallowed URL
+ * cannot be crawled, so Google never sees the page's noindex meta and can
+ * still index it URL-only from an external link ("Indexed, though blocked by
+ * robots.txt"). Draft privacy is enforced where it actually works: the
+ * password gate (SSG HTML on disk contains only the gate), the per-page
+ * <meta name="robots" content="noindex, nofollow"> from usePageMeta, and
+ * omission from sitemap.xml. Only the site-wide draft state emits a blanket
+ * "Disallow: /" — a pre-launch site has no individual URLs to disclose.
  *
  * site.robots.allowAiCrawlers (opt-in, default off): appends a dedicated block
  * per known AI/LLM crawler (GPTBot, ClaudeBot, PerplexityBot, CCBot, etc.),
@@ -27,8 +34,6 @@
  *
  * If sitemapUrl is provided, appends a "Sitemap: <url>" line.
  */
-
-import { normalizeDraftPath } from './draftMode.js';
 
 const FRAMEWORK_DEFAULTS = ['/admin'];
 
@@ -47,34 +52,18 @@ const AI_CRAWLER_GROUPS = [
 
 export function buildRobotsTxt(siteConfig, sitemapUrl = '') {
   const site = siteConfig?.site || {};
-  const pages = siteConfig?.pages || {};
 
   const disallows = [...FRAMEWORK_DEFAULTS];
 
   if (site.draft === true) {
     disallows.push('/');
-  } else {
-    const additional = new Set();
-
-    const draftPaths = Array.isArray(site.draftPaths) ? site.draftPaths : [];
-    for (const p of draftPaths) {
-      const np = normalizeDraftPath(p);
-      if (np && !FRAMEWORK_DEFAULTS.includes(np)) additional.add(np);
-    }
-
-    for (const [, pageData] of Object.entries(pages)) {
-      if (!pageData || typeof pageData !== 'object') continue;
-      if (pageData.draft !== true) continue;
-      const np = normalizeDraftPath(pageData.path);
-      if (np && !FRAMEWORK_DEFAULTS.includes(np)) additional.add(np);
-    }
-
-    for (const p of Array.from(additional).sort()) {
-      disallows.push(p);
-    }
   }
 
   const lines = ['User-agent: *'];
+  if (disallows.length === 0) {
+    // A UA record needs a Disallow field; the empty value means "allow all".
+    lines.push('Disallow:');
+  }
   for (const d of disallows) {
     lines.push(`Disallow: ${d}`);
   }
@@ -85,6 +74,9 @@ export function buildRobotsTxt(siteConfig, sitemapUrl = '') {
       lines.push(`# ${group.comment}`);
       for (const agent of group.agents) {
         lines.push(`User-agent: ${agent}`);
+        if (disallows.length === 0) {
+          lines.push('Disallow:');
+        }
         for (const d of disallows) {
           lines.push(`Disallow: ${d}`);
         }
