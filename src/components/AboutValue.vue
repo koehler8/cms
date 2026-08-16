@@ -159,7 +159,6 @@ const hasValueProps = computed(() => {
 });
 
 const DEFAULT_VALUE_IMAGE_PATH = 'img/about-top';
-const DEFAULT_VALUE_IMAGE_WIDTHS = [320, 900];
 const DEFAULT_VALUE_IMAGE_FALLBACK = 'jpg';
 
 const valueImagePath = computed(() => {
@@ -179,7 +178,9 @@ const valueImageWidths = computed(() => {
   if (Array.isArray(widths) && widths.length) {
     return widths;
   }
-  return DEFAULT_VALUE_IMAGE_WIDTHS;
+  // No site override → useResponsiveImage falls back to the pipeline's
+  // resolved width matrix.
+  return undefined;
 });
 
 const valueImageFallbackFormat = computed(() => {

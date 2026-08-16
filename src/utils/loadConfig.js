@@ -364,6 +364,7 @@ let _loadConfigData = async () => {
 
 let _availableLocales = [];
 let _baseLocale = '';
+let _imageVariantWidths = [];
 
 // Synchronous, client-side cache of the config the SSR/SSG pass already
 // resolved. Warmed once before mount (see main.js, from the vite-ssg-
@@ -386,6 +387,7 @@ export function setConfigLoader(instance) {
   _loadConfigData = instance.loadConfigData;
   _availableLocales = instance.availableLocales || [];
   _baseLocale = typeof instance.baseLocale === 'string' ? instance.baseLocale : '';
+  _imageVariantWidths = Array.isArray(instance.imageVariantWidths) ? instance.imageVariantWidths : [];
   _syncConfigCache.clear();
 }
 
@@ -406,5 +408,12 @@ export function peekConfigSync(locale) {
 
 export { _availableLocales as availableLocales };
 export { _baseLocale as baseLocale };
+
+// The resolved image-variant width matrix from the build (site.imageVariants
+// .widths or the pipeline default). useResponsiveImage defaults to this so
+// srcsets only ever reference widths the pipeline actually generates.
+export function getImageVariantWidths() {
+  return _imageVariantWidths;
+}
 
 export const loadConfigData = (...args) => _loadConfigData(...args);

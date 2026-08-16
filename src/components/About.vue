@@ -119,12 +119,10 @@ const aboutTopButton = computed(() => getAboutValue('topButton', {}));
 const aboutBottomButton = computed(() => getAboutValue('bottomButton', {}));
 
 const topImage = useResponsiveImage('img/about-top', {
-  widths: [320, 900],
   fallbackFormat: 'jpg',
 });
 const topImageHandleError = topImage.handleError;
 const bottomImage = useResponsiveImage('img/about-bottom', {
-  widths: [320, 600],
   fallbackFormat: 'jpg',
 });
 const bottomImageHandleError = bottomImage.handleError;

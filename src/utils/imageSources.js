@@ -1,5 +1,6 @@
 import { computed, ref, watch, unref } from 'vue';
 import { resolveAsset } from './assetResolver.js';
+import { getImageVariantWidths } from './loadConfig.js';
 
 const DEFAULT_FORMATS = ['avif', 'webp'];
 
@@ -69,7 +70,14 @@ function resolveBestFallback(basePath, widthList, format) {
 export function useResponsiveImage(relativePath, options = {}) {
   const basePath = computed(() => normalizeBasePath(unref(relativePath)));
   const widthInput = options.widths;
-  const widths = computed(() => normalizeWidths(unref(widthInput)));
+  // Default to the build's resolved variant widths: components that hardcode
+  // their own lists drift from what the pipeline generates (missing widths
+  // silently vanish from the srcset), and omitting widths used to disable
+  // responsive images entirely.
+  const widths = computed(() => {
+    const provided = normalizeWidths(unref(widthInput));
+    return provided.length ? provided : normalizeWidths(getImageVariantWidths());
+  });
   const fallbackFormat = computed(() => unref(options.fallbackFormat) || 'jpg');
   const formats = computed(() => {
     const provided = unref(options.formats);

@@ -69,7 +69,6 @@
   const introText = computed(() => introData.value?.text || '');
 
   const introImage = useResponsiveImage('img/intro', {
-    widths: [320, 540],
     fallbackFormat: 'jpg',
   });
   const introImageHandleError = introImage.handleError;

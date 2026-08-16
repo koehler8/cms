@@ -94,7 +94,6 @@ const heroHeadlineParts = computed(() => {
 });
 
 const promoImageSet = useResponsiveImage('img/promo', {
-  widths: [960, 1440, 1920],
   fallbackFormat: 'jpg',
 });
 

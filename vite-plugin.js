@@ -500,6 +500,7 @@ export default function cmsPlugin(options = {}) {
   let tempEntryPath;
   let variantCacheDir;
   let variantManifestPath;
+  let imageVariantWidths = [];
 
   const writeTempFiles = () => {
     // Write entry file (with optional external theme registrations)
@@ -645,6 +646,7 @@ export default function cmsPlugin(options = {}) {
         : [];
       pagePaths = collectPagePaths(siteConfig);
       metadata = extractSiteMetadata(siteConfig);
+      imageVariantWidths = resolveImageVariantConfig(siteConfig).widths;
 
       // Unknown components[] references fail the build. Every locale's pages
       // are checked — locale files can define their own component lists, and
@@ -912,6 +914,11 @@ export const cloneConfig = loader.cloneConfig;
 // locale list as the build, regardless of glob-based heuristics.
 export const availableLocales = ${JSON.stringify(availableLocales)};
 export const baseLocale = ${JSON.stringify(baseLocale)};
+// The resolved image-variant width matrix (site.imageVariants.widths or the
+// pipeline default) — the single source of truth useResponsiveImage builds
+// srcsets from, so components can never request widths the pipeline doesn't
+// generate.
+export const imageVariantWidths = ${JSON.stringify(imageVariantWidths)};
 `;
       }
 
