@@ -332,6 +332,60 @@ function discoverExtensionCjsDeps(extensionPackages, projectRoot) {
   return [...cjsDeps];
 }
 
+// Build-time extension-manifest validation. Manifests are static JSON, fixed
+// at build time, so full JSON-Schema validation happens here — failing the
+// build loudly — instead of shipping ajv to every visitor's browser (the
+// runtime loader keeps only cheap structural checks). Spec resolution mirrors
+// how the generated entry imports each extension: './'-relative specs resolve
+// from the project root, package names from the project's node_modules.
+// Exported for tests.
+export async function validateExtensionManifests(extensionPackages, projectRoot, frameworkDir = __dirname) {
+  if (!Array.isArray(extensionPackages) || extensionPackages.length === 0) return;
+
+  const [{ default: Ajv }, ajvFormats] = await Promise.all([
+    import('ajv/dist/2020.js'),
+    import('ajv-formats'),
+  ]);
+  const addFormats = ajvFormats.default || ajvFormats;
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  addFormats(ajv);
+  const schemaPath = path.join(frameworkDir, 'extensions', 'manifest.schema.json');
+  const validate = ajv.compile(JSON.parse(fs.readFileSync(schemaPath, 'utf-8')));
+
+  const problems = [];
+  for (const spec of extensionPackages) {
+    const baseDir = spec.startsWith('.') || path.isAbsolute(spec)
+      ? path.resolve(projectRoot, spec)
+      : path.join(projectRoot, 'node_modules', ...spec.split('/'));
+    const manifestPath = path.join(baseDir, 'extension.config.json');
+
+    if (!fs.existsSync(manifestPath)) {
+      // A spec may legitimately carry its manifest elsewhere (the entry
+      // module imports it); the runtime structural check still covers it.
+      console.warn(`[@koehler8/cms] extension "${spec}": no extension.config.json at ${manifestPath} — skipping build-time schema validation.`);
+      continue;
+    }
+
+    let manifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    } catch (err) {
+      problems.push(`- ${spec}: extension.config.json is not valid JSON (${err.message})`);
+      continue;
+    }
+    if (!validate(manifest)) {
+      const details = (validate.errors || [])
+        .map((e) => `    ${e.instancePath || '(root)'} ${e.message}`)
+        .join('\n');
+      problems.push(`- ${spec}: manifest failed schema validation\n${details}`);
+    }
+  }
+
+  if (problems.length) {
+    throw new Error(`[@koehler8/cms] Extension manifest validation failed:\n${problems.join('\n')}`);
+  }
+}
+
 export default function cmsPlugin(options = {}) {
   const {
     siteDir: siteDirOption = './site',
@@ -453,7 +507,7 @@ export default function cmsPlugin(options = {}) {
     name: '@koehler8/cms',
     enforce: 'pre',
 
-    config(userConfig, env) {
+    async config(userConfig, env) {
       // Resolve absolute paths
       frameworkRoot = path.resolve(frameworkRootOption);
       siteDir = path.isAbsolute(siteDirOption)
@@ -464,6 +518,10 @@ export default function cmsPlugin(options = {}) {
       tempEntryPath = path.join(siteRoot, ENTRY_FILENAME);
       variantCacheDir = computeVariantCacheDir(siteRoot, siteDir);
       variantManifestPath = path.join(variantCacheDir, '.manifest.json');
+
+      // Invalid extension manifests fail the build here, loudly, instead of
+      // being silently skipped in the visitor's browser.
+      await validateExtensionManifests(extensionPackages, siteRoot, frameworkRoot);
 
       // Load site config at config-resolution time (needed for SSG routes + HTML injection)
       const contentDir = path.join(siteDir, 'content');
@@ -522,14 +580,11 @@ export default function cmsPlugin(options = {}) {
           // injected router context (renders empty).
           exclude: ['vue', 'vue-router', 'pinia', '@koehler8/cms', ...extensionPackages],
           include: [
-            // CJS deps imported directly by framework source
-            'ajv',
-            'ajv/dist/2020',
-            'ajv/dist/2020.js',
-            'ajv-formats',
             // Auto-discovered CJS deps from extension packages.
             // Extensions may depend on ESM packages that import CJS modules;
             // these must be pre-bundled for proper default-export shims.
+            // (ajv is no longer here: manifest validation moved to build
+            // time in this plugin, so the runtime never imports it.)
             ...discoverExtensionCjsDeps(extensionPackages, siteRoot),
           ],
         },

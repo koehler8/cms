@@ -192,3 +192,93 @@ describe('vite-plugin helpers', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Real-plugin tests (import the actual module, not re-implemented copies).
+// ---------------------------------------------------------------------------
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import { validateExtensionManifests } from '../vite-plugin.js';
+
+describe('validateExtensionManifests (build-time gate)', () => {
+  let projectRoot;
+  const frameworkDir = path.resolve(__dirname, '..');
+
+  const writeManifest = (relDir, manifest) => {
+    const dir = path.join(projectRoot, relDir);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      path.join(dir, 'extension.config.json'),
+      typeof manifest === 'string' ? manifest : JSON.stringify(manifest, null, 2),
+    );
+  };
+
+  const validManifest = {
+    slug: 'my-ext',
+    version: '1.0.0',
+    provider: { name: 'Test' },
+    license: 'MIT',
+    components: [
+      { name: 'MyThing', label: 'My Thing', description: 'A thing', configKey: 'myThing' },
+    ],
+  };
+
+  beforeEach(() => {
+    projectRoot = mkdtempSync(path.join(os.tmpdir(), 'cms-manifest-validate-'));
+  });
+
+  afterEach(() => {
+    rmSync(projectRoot, { recursive: true, force: true });
+  });
+
+  it('passes a valid site-local extension manifest', async () => {
+    writeManifest('extensions/my-ext', validManifest);
+    await expect(
+      validateExtensionManifests(['./extensions/my-ext'], projectRoot, frameworkDir),
+    ).resolves.toBeUndefined();
+  });
+
+  it('passes a valid npm-package extension manifest', async () => {
+    writeManifest('node_modules/@koehler8/cms-ext-test', validManifest);
+    await expect(
+      validateExtensionManifests(['@koehler8/cms-ext-test'], projectRoot, frameworkDir),
+    ).resolves.toBeUndefined();
+  });
+
+  it('fails the build on a schema violation, naming the spec and the field', async () => {
+    writeManifest('extensions/bad-ext', {
+      ...validManifest,
+      slug: 'Bad Slug With Spaces',
+    });
+    await expect(
+      validateExtensionManifests(['./extensions/bad-ext'], projectRoot, frameworkDir),
+    ).rejects.toThrow(/bad-ext[\s\S]*slug/);
+  });
+
+  it('fails the build on unparseable manifest JSON', async () => {
+    writeManifest('extensions/broken', '{ not json');
+    await expect(
+      validateExtensionManifests(['./extensions/broken'], projectRoot, frameworkDir),
+    ).rejects.toThrow(/not valid JSON/);
+  });
+
+  it('warns but does not fail when a spec has no manifest file', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(
+        validateExtensionManifests(['./extensions/absent'], projectRoot, frameworkDir),
+      ).resolves.toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no extension.config.json'));
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('validates the real cms-ext-compliance manifest in the workspace, if present', async () => {
+    const compliancePath = path.resolve(frameworkDir, '..', 'cms-ext-compliance');
+    if (!fs.existsSync(path.join(compliancePath, 'extension.config.json'))) return;
+    await expect(
+      validateExtensionManifests(['../cms-ext-compliance'], frameworkDir, frameworkDir),
+    ).resolves.toBeUndefined();
+  });
+});

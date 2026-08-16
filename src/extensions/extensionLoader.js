@@ -1,6 +1,5 @@
 import { defineAsyncComponent } from 'vue';
 
-import manifestSchema from '../../extensions/manifest.schema.json' with { type: 'json' };
 import { unwrapDefault as toPlainModule } from '../utils/unwrapDefault.js';
 
 const manifestModules = import.meta.glob('../../extensions/**/extension.config.json', {
@@ -23,22 +22,30 @@ const componentModules = import.meta.glob([
   '!**/*.spec.*',
 ]);
 
-// Lazy-load ajv via dynamic import — the static `import Ajv from 'ajv/...'`
-// fails when Vite serves this file outside the dep optimizer (CJS module
-// without a default export shim).  Dynamic import always gets the shim.
-let validateManifest;
-async function getValidator() {
-  if (!validateManifest) {
-    const [{ default: Ajv }, ajvFormats] = await Promise.all([
-      import('ajv/dist/2020'),
-      import('ajv-formats'),
-    ]);
-    const addFormats = ajvFormats.default || ajvFormats;
-    const ajv = new Ajv({ allErrors: true, strict: false });
-    addFormats(ajv);
-    validateManifest = ajv.compile(manifestSchema);
+// Structural sanity check only — full JSON-Schema validation runs at build
+// time in the Vite plugin (validateExtensionManifests), which FAILS the
+// build on an invalid manifest. This runtime check exists so a malformed
+// manifest handed straight to registerExtension() can't crash the loader,
+// and it is deliberately cheap: shipping ajv to the browser to re-validate
+// build-frozen JSON was ~40 KB of bundle for zero new information. Checks
+// only the fields the loader dereferences below.
+function describeManifestProblem(manifest) {
+  if (!manifest || typeof manifest !== 'object') {
+    return 'manifest is not an object';
   }
-  return validateManifest;
+  if (typeof manifest.slug !== 'string' || !manifest.slug.trim()) {
+    return 'manifest.slug must be a non-empty string';
+  }
+  if (!Array.isArray(manifest.components)) {
+    return 'manifest.components must be an array';
+  }
+  for (const component of manifest.components) {
+    if (!component || typeof component !== 'object'
+      || typeof component.name !== 'string' || !component.name.trim()) {
+      return 'every manifest.components entry needs a non-empty string "name"';
+    }
+  }
+  return null;
 }
 
 const extensionComponentRegistry = {};
@@ -128,10 +135,11 @@ await Promise.all(
       return;
     }
 
-    const validate = await getValidator();
-    const isValid = validate(manifest);
-    if (!isValid) {
-      warn(`Manifest at ${manifestPath} failed validation.`, validate.errors);
+    const problem = describeManifestProblem(manifest);
+    if (problem) {
+      // Not DEV-gated: this fires once at boot, and a silently missing
+      // extension in production is exactly the failure mode to surface.
+      console.warn(`[extensions] Manifest at ${manifestPath} is invalid (${problem}); skipping.`);
       return;
     }
 
@@ -290,10 +298,12 @@ export async function registerExtension(extensionModule) {
     throw new Error('[extensions] registerExtension() module must include a manifest');
   }
 
-  const validate = await getValidator();
-  const isValid = validate(manifest);
-  if (!isValid) {
-    warn(`External extension "${manifest.slug}" failed validation.`, validate.errors);
+  const problem = describeManifestProblem(manifest);
+  if (problem) {
+    // Not DEV-gated: one boot-time line beats an extension vanishing
+    // silently in production. Schema-level validation already failed the
+    // build if this manifest shipped through the Vite plugin.
+    console.warn(`[extensions] External extension "${manifest?.slug || '(unknown)'}" has an invalid manifest (${problem}); skipping.`);
     return;
   }
 
