@@ -18,9 +18,4 @@ export default defineConfig({
       reporter: ['text', 'html'],
     },
   },
-  resolve: {
-    alias: {
-      '../../package.json?raw': path.resolve(__dirname, 'tests/helpers/package-json-raw.js'),
-    },
-  },
 });

@@ -92,7 +92,7 @@ function resolveViteSsgBin() {
   return fs.existsSync(local) ? local : 'vite-ssg';
 }
 
-function runViteSsg({ shard, outDir, heap, passthrough }) {
+function runViteSsg({ shard, outDir, heap, passthrough, stream = false }) {
   return new Promise((resolve) => {
     const env = { ...process.env };
     if (shard) env.CMS_SSG_SHARD = shard;
@@ -104,9 +104,12 @@ function runViteSsg({ shard, outDir, heap, passthrough }) {
     env.NODE_OPTIONS = `${base} --max-old-space-size=${heap}`.trim();
 
     const child = spawn(resolveViteSsgBin(), ['build', ...passthrough], { cwd: CWD, env });
+    // Output is always accumulated (the failure tail and the config-failure
+    // marker scan need it); `stream` additionally forwards it live so a
+    // multi-minute single build isn't a silent terminal.
     let out = '';
-    child.stdout.on('data', (d) => { out += d; });
-    child.stderr.on('data', (d) => { out += d; });
+    child.stdout.on('data', (d) => { out += d; if (stream) process.stdout.write(d); });
+    child.stderr.on('data', (d) => { out += d; if (stream) process.stderr.write(d); });
     child.on('close', (code) => resolve({ code, out }));
     child.on('error', (err) => resolve({ code: 1, out: String(err && err.stack ? err.stack : err) }));
   });
@@ -165,8 +168,7 @@ async function main() {
 
   if (N <= 1) {
     console.log(`${TAG} ~${estRoutes} routes ≤ shard size ${opts.shardSize}: running a single vite-ssg build (no sharding needed).`);
-    const r = await runViteSsg({ heap: opts.heap, passthrough: opts.passthrough });
-    process.stdout.write(r.out);
+    const r = await runViteSsg({ heap: opts.heap, passthrough: opts.passthrough, stream: true });
     if (r.code === 0) {
       if (r.out.includes(CONFIG_FAIL_MARKER)) {
         console.error(`${TAG} build exited 0 but at least one route failed to load its page config during pre-render (see "${CONFIG_FAIL_MARKER}" above). Failing the build.`);

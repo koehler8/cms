@@ -67,7 +67,11 @@ export function useDraftGate({ siteData, currentPage }) {
     try {
       providedHash = await sha256Hex(provided);
     } catch {
-      providedHash = '';
+      // crypto.subtle only exists in secure contexts — on plain http://
+      // (LAN preview, staging by IP) hashing itself fails. Say that,
+      // instead of telling the user their correct password is wrong.
+      errorMessage.value = 'Unlocking requires a secure connection — reload this page over HTTPS (or localhost) and try again.';
+      return false;
     }
     if (providedHash && providedHash === hash) {
       isUnlocked.value = true;

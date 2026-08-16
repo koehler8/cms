@@ -693,6 +693,17 @@ export default function cmsPlugin(options = {}) {
             '@extensions': extensionsDir,
           },
         },
+        // Static framework-version literal for src/utils/appInfo.js — the old
+        // `package.json?raw` import shipped the framework's entire manifest
+        // (deps, exports map) as a string in every client bundle to read one
+        // field. A real VITE_APP_VERSION env var still wins.
+        define: {
+          'import.meta.env.VITE_APP_VERSION': JSON.stringify(
+            process.env.VITE_APP_VERSION
+              || JSON.parse(fs.readFileSync(path.join(frameworkRoot, 'package.json'), 'utf-8')).version
+              || '0.0.0',
+          ),
+        },
         optimizeDeps: {
           // vue and vue-router MUST NOT be pre-bundled (inlined) into
           // @koehler8/cms chunks — if they are, .vue components served raw
