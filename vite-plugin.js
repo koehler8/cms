@@ -519,6 +519,10 @@ export default function cmsPlugin(options = {}) {
   let variantCacheDir;
   let variantManifestPath;
   let imageVariantWidths = [];
+  // Closure-scoped (NOT this._isDevServer): Vite 8 binds configureServer to a
+  // shared minimal context, not the object buildEnd/closeBundle see, so a
+  // property stashed on `this` in one hook is invisible in the others.
+  let isDevServer = false;
 
   const writeTempFiles = () => {
     // Write entry file (with optional external theme registrations)
@@ -580,33 +584,48 @@ export default function cmsPlugin(options = {}) {
   // write them to siteRoot/public/. Runs after syncPublicDir so dynamic
   // output overwrites any framework or stale static copy. Sites pick up
   // changes by rebuilding (the existing edit-JSON-rebuild-deploy flow).
-  const writeSeoFiles = () => {
+  // Skip the write when content is unchanged: siteRoot/public/ may be
+  // git-tracked, and a plain `vite dev` session should not churn mtimes on
+  // tracked files.
+  const writeFileIfChanged = (filePath, content) => {
+    try {
+      if (fs.existsSync(filePath) && fs.readFileSync(filePath, 'utf-8') === content) return;
+    } catch { /* unreadable → fall through to write */ }
+    fs.writeFileSync(filePath, content, 'utf-8');
+  };
+
+  const writeSeoFiles = ({ removeStale = true } = {}) => {
     const sitePublicDir = path.join(siteRoot, 'public');
     fs.mkdirSync(sitePublicDir, { recursive: true });
 
     const sitemapXml = buildSitemap(siteConfig, { availableLocales, baseLocale });
     const sitemapPath = path.join(sitePublicDir, 'sitemap.xml');
     if (sitemapXml) {
-      fs.writeFileSync(sitemapPath, sitemapXml, 'utf-8');
+      writeFileIfChanged(sitemapPath, sitemapXml);
     } else if (fs.existsSync(sitemapPath)) {
-      // Stale sitemap from a previous build (e.g. site.url was removed, or
-      // every page is now draft). Drop it so crawlers don't get a list of
-      // URLs that no longer apply.
-      try { fs.unlinkSync(sitemapPath); } catch { /* noop */ }
+      if (removeStale) {
+        // Stale sitemap from a previous build (e.g. site.url was removed, or
+        // every page is now draft). Drop it so crawlers don't get a list of
+        // URLs that no longer apply.
+        try { fs.unlinkSync(sitemapPath); } catch { /* noop */ }
+      } else {
+        // Dev session: never delete a (possibly tracked) file over what may
+        // be a transient config typo — a build will reconcile it.
+        console.warn('[@koehler8/cms] sitemap.xml is stale (no site.url, or the whole site is draft); left in place — the next build will remove it.');
+      }
     }
 
     const sitemapUrl = sitemapXml ? getSitemapUrl(siteConfig) : '';
     const robotsBody = buildRobotsTxt(siteConfig, sitemapUrl);
-    fs.writeFileSync(path.join(sitePublicDir, 'robots.txt'), robotsBody, 'utf-8');
+    writeFileIfChanged(path.join(sitePublicDir, 'robots.txt'), robotsBody);
 
     // Web App Manifest. The template emits <link rel="manifest"> on every
     // page; browsers use this to enable Add-to-Home-Screen + control
     // splash colors when the site is launched from a homescreen icon.
     const manifest = buildWebAppManifest(siteConfig);
-    fs.writeFileSync(
+    writeFileIfChanged(
       path.join(sitePublicDir, 'manifest.json'),
       JSON.stringify(manifest, null, 2) + '\n',
-      'utf-8',
     );
   };
 
@@ -615,6 +634,7 @@ export default function cmsPlugin(options = {}) {
     enforce: 'pre',
 
     async config(userConfig, env) {
+      isDevServer = env?.command === 'serve';
       // Resolve absolute paths
       frameworkRoot = path.resolve(frameworkRootOption);
       siteDir = path.isAbsolute(siteDirOption)
@@ -1075,25 +1095,23 @@ export const assetUrlMap = resolver.assetUrlMap;
       syncPublicDir();
 
       // robots.txt and sitemap.xml are generated from the inflated site
-      // config (so per-site draft state regenerates on every build).
-      writeSeoFiles();
+      // config (so per-site draft state regenerates on every build). Dev
+      // sessions write-if-changed only and never delete (public/ may be
+      // git-tracked; a config typo mid-session must not remove files).
+      writeSeoFiles({ removeStale: !isDevServer });
     },
 
     buildEnd() {
       // Only clean up during actual builds, not dev server
-      if (!this._isDevServer) cleanupTempFiles();
+      if (!isDevServer) cleanupTempFiles();
     },
 
     closeBundle() {
       // Only clean up during actual builds, not dev server
-      if (!this._isDevServer) cleanupTempFiles();
+      if (!isDevServer) cleanupTempFiles();
     },
 
     configureServer(server) {
-      // Mark that we're running as a dev server so buildEnd/closeBundle
-      // don't prematurely delete the temp files.
-      this._isDevServer = true;
-
       // Clean up only when the dev server actually closes
       server.httpServer?.once('close', cleanupTempFiles);
       process.once('exit', cleanupTempFiles);
@@ -1176,8 +1194,12 @@ export const assetUrlMap = resolver.assetUrlMap;
       // Invalidate virtual modules when site content changes
       const invalidate = (file) => {
         // Don't double-handle image events — the dedicated handler above
-        // already invalidates VIRTUAL_ASSETS and triggers full-reload.
+        // (debounced variant regen) owns everything under site/assets/img/
+        // and the cache dir, and fires its own full-reload once the fresh
+        // variants exist. Handling them here too caused two full reloads per
+        // image edit, the first against stale variants.
         if (variantCacheDir && file.startsWith(variantCacheDir)) return;
+        if (siteImgDir && file.startsWith(siteImgDir)) return;
         if (!file.startsWith(siteDir)) return;
         for (const id of VIRTUAL_IDS) {
           const mod = server.moduleGraph.getModuleById(resolved(id));
