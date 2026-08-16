@@ -235,14 +235,18 @@ describe('validateExtensionManifests (build-time gate)', () => {
     writeManifest('extensions/my-ext', validManifest);
     await expect(
       validateExtensionManifests(['./extensions/my-ext'], projectRoot, frameworkDir),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual([
+      { spec: './extensions/my-ext', slug: 'my-ext', componentNames: new Set(['MyThing']) },
+    ]);
   });
 
   it('passes a valid npm-package extension manifest', async () => {
     writeManifest('node_modules/@koehler8/cms-ext-test', validManifest);
     await expect(
       validateExtensionManifests(['@koehler8/cms-ext-test'], projectRoot, frameworkDir),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual([
+      { spec: '@koehler8/cms-ext-test', slug: 'my-ext', componentNames: new Set(['MyThing']) },
+    ]);
   });
 
   it('fails the build on a schema violation, naming the spec and the field', async () => {
@@ -267,7 +271,7 @@ describe('validateExtensionManifests (build-time gate)', () => {
     try {
       await expect(
         validateExtensionManifests(['./extensions/absent'], projectRoot, frameworkDir),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual([]);
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no extension.config.json'));
     } finally {
       warnSpy.mockRestore();
@@ -277,8 +281,89 @@ describe('validateExtensionManifests (build-time gate)', () => {
   it('validates the real cms-ext-compliance manifest in the workspace, if present', async () => {
     const compliancePath = path.resolve(frameworkDir, '..', 'cms-ext-compliance');
     if (!fs.existsSync(path.join(compliancePath, 'extension.config.json'))) return;
-    await expect(
-      validateExtensionManifests(['../cms-ext-compliance'], frameworkDir, frameworkDir),
-    ).resolves.toBeUndefined();
+    const info = await validateExtensionManifests(['../cms-ext-compliance'], frameworkDir, frameworkDir);
+    expect(info).toHaveLength(1);
+    expect(info[0].slug).toBe('compliance');
+    expect(info[0].componentNames.size).toBeGreaterThan(0);
+  });
+});
+
+import { collectComponentRefProblems } from '../vite-plugin.js';
+
+describe('collectComponentRefProblems (build-time components[] gate)', () => {
+  const base = {
+    bundledNames: new Set(['Header', 'Hero', 'Footer', 'Spacer']),
+    siteNames: new Set(['MyCustom']),
+    extensions: [{ slug: 'compliance', componentNames: new Set(['Privacy', 'Legal']) }],
+  };
+
+  it('passes bundled, site, extension, and qualified references', () => {
+    const problems = collectComponentRefProblems({
+      ...base,
+      pagesByLocale: {
+        en: {
+          home: { components: ['Header', 'MyCustom', 'Privacy', 'site:MyCustom', 'compliance:Legal'] },
+          about: { components: [{ name: 'Hero', configKey: 'promo' }, { name: 'Privacy', source: 'compliance' }] },
+        },
+      },
+    });
+    expect(problems).toEqual([]);
+  });
+
+  it('flags an unknown bare name with the page, locale, and index', () => {
+    const problems = collectComponentRefProblems({
+      ...base,
+      pagesByLocale: { en: { home: { components: ['Header', 'Herro'] } } },
+    });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('pages/home.json');
+    expect(problems[0]).toContain('locale en');
+    expect(problems[0]).toContain('components[1]');
+    expect(problems[0]).toContain('"Herro"');
+  });
+
+  it('suggests the canonical name on a case mismatch', () => {
+    const problems = collectComponentRefProblems({
+      ...base,
+      pagesByLocale: { en: { home: { components: ['hero'] } } },
+    });
+    expect(problems[0]).toContain('did you mean "Hero"?');
+  });
+
+  it('flags unknown extension sources and undeclared extension components', () => {
+    const problems = collectComponentRefProblems({
+      ...base,
+      pagesByLocale: {
+        en: { home: { components: ['nope:Privacy', { name: 'Terms', source: 'compliance' }] } },
+      },
+    });
+    expect(problems).toHaveLength(2);
+    expect(problems[0]).toContain('unknown extension source "nope"');
+    expect(problems[1]).toContain('extension "compliance" declares no component "Terms"');
+  });
+
+  it('flags a missing site-local component', () => {
+    const problems = collectComponentRefProblems({
+      ...base,
+      pagesByLocale: { en: { home: { components: ['site:Missing'] } } },
+    });
+    expect(problems[0]).toContain('no site/components/Missing.vue');
+  });
+
+  it('checks non-base locales too', () => {
+    const problems = collectComponentRefProblems({
+      ...base,
+      pagesByLocale: { en: { home: { components: ['Header'] } }, de: { home: { components: ['Kopfzeile'] } } },
+    });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('locale de');
+  });
+
+  it('ignores empty entries and non-array components', () => {
+    const problems = collectComponentRefProblems({
+      ...base,
+      pagesByLocale: { en: { a: { components: ['', null, {}] }, b: {}, c: { components: 'Header' } } },
+    });
+    expect(problems).toEqual([]);
   });
 });

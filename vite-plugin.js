@@ -340,7 +340,7 @@ function discoverExtensionCjsDeps(extensionPackages, projectRoot) {
 // from the project root, package names from the project's node_modules.
 // Exported for tests.
 export async function validateExtensionManifests(extensionPackages, projectRoot, frameworkDir = __dirname) {
-  if (!Array.isArray(extensionPackages) || extensionPackages.length === 0) return;
+  if (!Array.isArray(extensionPackages) || extensionPackages.length === 0) return [];
 
   const [{ default: Ajv }, ajvFormats] = await Promise.all([
     import('ajv/dist/2020.js'),
@@ -353,6 +353,7 @@ export async function validateExtensionManifests(extensionPackages, projectRoot,
   const validate = ajv.compile(JSON.parse(fs.readFileSync(schemaPath, 'utf-8')));
 
   const problems = [];
+  const manifests = [];
   for (const spec of extensionPackages) {
     const baseDir = spec.startsWith('.') || path.isAbsolute(spec)
       ? path.resolve(projectRoot, spec)
@@ -378,12 +379,99 @@ export async function validateExtensionManifests(extensionPackages, projectRoot,
         .map((e) => `    ${e.instancePath || '(root)'} ${e.message}`)
         .join('\n');
       problems.push(`- ${spec}: manifest failed schema validation\n${details}`);
+      continue;
     }
+    manifests.push({
+      spec,
+      slug: manifest.slug,
+      componentNames: new Set(
+        (manifest.components || []).map((c) => c && c.name).filter(Boolean),
+      ),
+    });
   }
 
   if (problems.length) {
     throw new Error(`[@koehler8/cms] Extension manifest validation failed:\n${problems.join('\n')}`);
   }
+  return manifests;
+}
+
+// List every *.vue basename under a directory (recursive). Mirrors the
+// import.meta.glob discovery the runtime registries use.
+function collectVueBasenames(dir) {
+  const names = new Set();
+  if (!fs.existsSync(dir)) return names;
+  const walk = (d) => {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile() && entry.name.endsWith('.vue')) {
+        names.add(entry.name.replace(/\.vue$/i, ''));
+      }
+    }
+  };
+  walk(dir);
+  return names;
+}
+
+// Build-time components[] validation: every name referenced by a page must
+// resolve to a bundled, site-local, or extension-manifest component — the
+// same namespace the runtime resolver searches. At runtime an unknown name
+// silently drops the section in production (the resolver's warnings are
+// DEV-gated), which is the fleet's #1 documented authoring trap; here it
+// fails the build with the page and name instead. Exported for tests.
+export function collectComponentRefProblems({ pagesByLocale = {}, bundledNames, siteNames, extensions = [] }) {
+  const bundled = bundledNames instanceof Set ? bundledNames : new Set(bundledNames || []);
+  const site = siteNames instanceof Set ? siteNames : new Set(siteNames || []);
+  const bySlug = new Map(extensions.map((e) => [e.slug, e.componentNames]));
+  const extensionNames = new Set(extensions.flatMap((e) => [...e.componentNames]));
+  const allKnown = new Set([...bundled, ...site, ...extensionNames]);
+  const lowerToCanonical = new Map([...allKnown].map((n) => [n.toLowerCase(), n]));
+
+  const problems = [];
+  for (const [locale, pages] of Object.entries(pagesByLocale)) {
+    for (const [pageId, page] of Object.entries(pages || {})) {
+      const components = Array.isArray(page?.components) ? page.components : [];
+      components.forEach((entry, index) => {
+        let name = '';
+        let source = '';
+        if (typeof entry === 'string') {
+          name = entry.trim();
+        } else if (entry && typeof entry === 'object') {
+          name = typeof entry.name === 'string' ? entry.name.trim() : '';
+          source = typeof entry.source === 'string' ? entry.source.trim() : '';
+        }
+        if (!name) return;
+        if (!source && name.includes(':')) {
+          [source, name] = [name.slice(0, name.indexOf(':')), name.slice(name.indexOf(':') + 1)];
+        }
+
+        const where = `pages/${pageId}.json (locale ${locale}) components[${index}]`;
+        if (source === 'site') {
+          if (!site.has(name)) {
+            problems.push(`- ${where}: "site:${name}" — no site/components/${name}.vue exists`);
+          }
+          return;
+        }
+        if (source) {
+          const extSet = bySlug.get(source);
+          if (!extSet) {
+            problems.push(`- ${where}: unknown extension source "${source}" (registered: ${[...bySlug.keys()].join(', ') || 'none'})`);
+          } else if (!extSet.has(name)) {
+            problems.push(`- ${where}: extension "${source}" declares no component "${name}"`);
+          }
+          return;
+        }
+        if (!allKnown.has(name)) {
+          const suggestion = lowerToCanonical.get(name.toLowerCase());
+          problems.push(
+            `- ${where}: unknown component "${name}"${suggestion ? ` (did you mean "${suggestion}"?)` : ''}`,
+          );
+        }
+      });
+    }
+  }
+  return problems;
 }
 
 export default function cmsPlugin(options = {}) {
@@ -520,8 +608,9 @@ export default function cmsPlugin(options = {}) {
       variantManifestPath = path.join(variantCacheDir, '.manifest.json');
 
       // Invalid extension manifests fail the build here, loudly, instead of
-      // being silently skipped in the visitor's browser.
-      await validateExtensionManifests(extensionPackages, siteRoot, frameworkRoot);
+      // being silently skipped in the visitor's browser. The returned info
+      // (slug + declared component names) feeds components[] validation below.
+      const extensionManifestInfo = await validateExtensionManifests(extensionPackages, siteRoot, frameworkRoot);
 
       // Load site config at config-resolution time (needed for SSG routes + HTML injection)
       const contentDir = path.join(siteDir, 'content');
@@ -556,6 +645,41 @@ export default function cmsPlugin(options = {}) {
         : [];
       pagePaths = collectPagePaths(siteConfig);
       metadata = extractSiteMetadata(siteConfig);
+
+      // Unknown components[] references fail the build. Every locale's pages
+      // are checked — locale files can define their own component lists, and
+      // translation-only locale dirs may carry pages without a site.json.
+      const pagesByLocale = { [baseLocale]: siteConfig.pages || {} };
+      for (const locale of availableLocales) {
+        if (locale === baseLocale) continue;
+        const pagesDir = path.join(contentDir, locale, 'pages');
+        if (!fs.existsSync(pagesDir)) continue;
+        const localePages = {};
+        for (const file of fs.readdirSync(pagesDir)) {
+          if (!file.endsWith('.json')) continue;
+          try {
+            localePages[file.replace('.json', '')] = inflateFlatConfig(
+              JSON.parse(fs.readFileSync(path.join(pagesDir, file), 'utf-8')),
+            );
+          } catch {
+            /* unparseable page JSON surfaces via the real config load */
+          }
+        }
+        pagesByLocale[locale] = localePages;
+      }
+      const bundledComponentNames = collectVueBasenames(path.join(frameworkRoot, 'src', 'components'));
+      bundledComponentNames.delete('Home'); // page wrapper, not addressable from components[]
+      const componentProblems = collectComponentRefProblems({
+        pagesByLocale,
+        bundledNames: bundledComponentNames,
+        siteNames: collectVueBasenames(path.join(siteDir, 'components')),
+        extensions: extensionManifestInfo,
+      });
+      if (componentProblems.length) {
+        throw new Error(
+          `[@koehler8/cms] Unknown component reference(s) in components[] — these sections would silently render nothing:\n${componentProblems.join('\n')}`,
+        );
+      }
 
       const extensionsDir = path.join(frameworkRoot, 'extensions');
       const extensionSetupFiles = collectExtensionSetupFiles(extensionsDir);
