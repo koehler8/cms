@@ -783,10 +783,11 @@ export default function cmsPlugin(options = {}) {
           // not the bound; see SSG-MEMORY-PLAN.md for the durable fix.
           concurrency: 8,
           // After vite-ssg pre-renders every route, copy the rendered
-          // dist/404/index.html to dist/404.html. AWS Amplify (and most
-          // static hosts) auto-serve a top-level 404.html for any
-          // unmatched URL with HTTP status 404, so this gives sites a
-          // proper not-found response without per-site config.
+          // dist/404/index.html to dist/404.html — the not-found target
+          // hosts point their catch-all at. (GitHub-Pages-style hosts
+          // auto-serve it at HTTP 404; AWS Amplify does NOT — it needs the
+          // fleet's customRule `/<*>` → `/404.html` @ `404`, which Amplify
+          // implements as a 302 redirect. Measured 2026-08-16.)
           onFinished() {
             const distDir = path.join(siteRoot, process.env.CMS_SSG_OUTDIR || 'dist');
             const nestedNotFound = path.join(distDir, '404', 'index.html');
@@ -802,8 +803,11 @@ export default function cmsPlugin(options = {}) {
           includedRoutes(paths) {
             // /404 is the not-found landing page (rendered via the
             // catch-all + NotFound component). onFinished above copies
-            // dist/404/index.html to dist/404.html so AWS Amplify serves
-            // it for unmatched URLs with HTTP 404.
+            // dist/404/index.html to dist/404.html; the host's catch-all
+            // rule sends unmatched URLs there. (On AWS Amplify that rule is
+            // a 302 redirect — its `404` rule type redirects rather than
+            // rewriting, and it has no native 404.html fallback. Measured
+            // 2026-08-16; the page's noindex meta covers the SEO side.)
             const staticRoutes = new Set(['/404']);
             pagePaths.forEach((routePath) => staticRoutes.add(routePath));
 
