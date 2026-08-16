@@ -264,4 +264,22 @@ function scrollTargetWithOffset(target) {
   transform: translateY(30%);
   opacity: 0;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .sticky-cta__button,
+  .slide-up-enter-active,
+  .slide-up-leave-active {
+    transition: none;
+  }
+
+  .sticky-cta__button:hover,
+  .sticky-cta__button:active {
+    transform: none;
+  }
+
+  .slide-up-enter-from,
+  .slide-up-leave-to {
+    transform: none;
+  }
+}
 </style>

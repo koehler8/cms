@@ -149,12 +149,12 @@ useFocusTrap(dialogRef, () => props.open, { onEscape: emitClose });
 }
 
 .coming-soon-cta:hover,
-.coming-soon-cta:focus {
+.coming-soon-cta:focus-visible {
   opacity: 0.92;
   transform: translateY(-1px);
 }
 
-.coming-soon-cta:focus {
+.coming-soon-cta:focus-visible {
   outline: 2px solid #111111;
   outline-offset: 2px;
 }
@@ -187,5 +187,16 @@ useFocusTrap(dialogRef, () => props.open, { onEscape: emitClose });
 .coming-soon-close:focus-visible {
   outline: 2px solid #1f2a44;
   outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coming-soon-cta {
+    transition: none;
+  }
+
+  .coming-soon-cta:hover,
+  .coming-soon-cta:focus-visible {
+    transform: none;
+  }
 }
 </style>

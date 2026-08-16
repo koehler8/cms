@@ -460,4 +460,26 @@ function handleAfterLeave() {
   transform: translateY(24px) scale(0.96);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .portfolio-filter,
+  .portfolio-card,
+  .portfolio-move,
+  .portfolio-enter-active,
+  .portfolio-leave-active {
+    transition: none;
+  }
+
+  .portfolio-filter:hover,
+  .portfolio-filter:focus-visible,
+  .portfolio-filter--active:hover,
+  .portfolio-filter--active:focus-visible,
+  .portfolio-card:hover {
+    transform: none;
+  }
+
+  .portfolio-enter-from,
+  .portfolio-leave-to {
+    transform: none;
+  }
+}
 </style>

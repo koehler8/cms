@@ -201,6 +201,15 @@ export function buildCssVarMap(manifest) {
   setVar(vars, '--ui-field-value', text.primary);
   setVar(vars, '--ui-status-heading-color', text.accent || palette.primary);
 
+  // Standalone-page tokens consumed by DraftGate and NotFound, which render
+  // outside any themed section. Every manifest theme feeds these; the two
+  // components keep neutral literal fallbacks for the unthemed case.
+  setVar(vars, '--brand-text', text.primary);
+  setVar(vars, '--brand-text-muted', text.muted);
+  setVar(vars, '--brand-surface', surfaces.base);
+  setVar(vars, '--brand-surface-elevated', surfaces.card || surfaces.raised);
+  setVar(vars, '--brand-border', surfaces.border);
+
   setVar(vars, '--brand-countdown-digit', palette.primary);
   setVar(vars, '--brand-countdown-label', text.muted);
 

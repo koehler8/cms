@@ -390,9 +390,20 @@ function handleActionClick(event, action) {
 }
 
 .coming-soon-action:hover,
-.coming-soon-action:focus {
+.coming-soon-action:focus-visible {
   transform: translateY(-2px);
   opacity: 0.92;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coming-soon-action {
+    transition: none;
+  }
+
+  .coming-soon-action:hover,
+  .coming-soon-action:focus-visible {
+    transform: none;
+  }
 }
 
 @media (max-width: 767px) {

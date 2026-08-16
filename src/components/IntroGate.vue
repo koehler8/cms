@@ -253,7 +253,7 @@ onMounted(() => {
 }
 
 .intro-gate-close:hover,
-.intro-gate-close:focus {
+.intro-gate-close:focus-visible {
   color: #ffffff;
   transform: scale(1.05);
 }
@@ -323,7 +323,7 @@ onMounted(() => {
 }
 
 .intro-gate-primary:hover,
-.intro-gate-primary:focus {
+.intro-gate-primary:focus-visible {
   transform: translateY(-2px);
   box-shadow: var(--brand-primary-cta-hover-shadow, 0 20px 44px rgba(255, 45, 134, 0.55));
 }
@@ -338,7 +338,7 @@ onMounted(() => {
 }
 
 .intro-gate-primary:hover::after,
-.intro-gate-primary:focus::after {
+.intro-gate-primary:focus-visible::after {
   transform: translateX(0%);
 }
 
@@ -355,7 +355,7 @@ onMounted(() => {
 }
 
 .intro-gate-secondary:hover,
-.intro-gate-secondary:focus {
+.intro-gate-secondary:focus-visible {
   color: var(--brand-neon-pink, #ff2d86);
   border-color: rgba(255, 45, 134, 0.55);
   transform: translateY(-1px);
@@ -373,6 +373,29 @@ onMounted(() => {
 
   .intro-gate-secondary {
     padding-inline: 1.2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .intro-gate-close,
+  .intro-gate-primary,
+  .intro-gate-secondary,
+  .intro-gate-primary::after {
+    transition: none;
+  }
+
+  .intro-gate-close:hover,
+  .intro-gate-close:focus-visible,
+  .intro-gate-primary:hover,
+  .intro-gate-primary:focus-visible,
+  .intro-gate-secondary:hover,
+  .intro-gate-secondary:focus-visible {
+    transform: none;
+  }
+
+  .intro-gate-primary:hover::after,
+  .intro-gate-primary:focus-visible::after {
+    transform: translateX(-120%);
   }
 }
 </style>
