@@ -35,6 +35,12 @@ jobs:
   publish:
     needs: test
     runs-on: ubuntu-latest
+    # Trusted publishing (OIDC): npm accepts this workflow's identity token
+    # directly — no NPM_TOKEN secret, nothing to expire or rotate. Configured
+    # on npmjs.com under the package's Trusted Publisher settings.
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -42,6 +48,10 @@ jobs:
         with:
           node-version-file: .nvmrc
           registry-url: 'https://registry.npmjs.org'
+
+      # OIDC publishing needs npm >= 11.5; the pinned Node 20.19 ships 10.8.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@^11
 
       - name: Publish
         run: |
@@ -51,5 +61,3 @@ jobs:
           else
             npm publish --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
