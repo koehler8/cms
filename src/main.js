@@ -5,7 +5,7 @@ import { createHead } from '@unhead/vue/client';
 import App from './App.vue';
 import { routes, resolveHistory, applyRouterGuards } from './router/index.js';
 
-import { shouldEnableAnalytics, scheduleAnalyticsLoad } from './utils/cookieConsent.js';
+import { shouldEnableAnalytics, scheduleAnalyticsLoad, configureAnalyticsConsentMode } from './utils/cookieConsent.js';
 import { loadConfigData, primeConfigSync, trimConfigToPage, resolvePageIdForRoute } from './utils/loadConfig.js';
 import { persistAttributionFromLocation } from './utils/trackingContext.js';
 import { applyThemeVariables } from './themes/themeManager.js';
@@ -230,6 +230,7 @@ export function createCmsApp() {
       let siteData;
       try {
         siteData = await loadSiteConfig();
+        configureAnalyticsConsentMode(siteData?.site?.analytics?.consentMode);
         if (shouldEnableAnalytics()) {
           const googleId = siteData?.site?.googleId;
           if (googleId) scheduleAnalyticsLoad(googleId);

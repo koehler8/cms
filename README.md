@@ -110,6 +110,20 @@ All files use flat dot-notation keys in alphabetical order. The base locale (spe
 
 **Supported locales:** en, fr, es, de, ja, ko, pt, ru, tr, vi, id, zh, th, hi, fil
 
+### Analytics & consent
+
+Set `"googleId"` in `site.json` to enable Google Analytics. How the
+not-yet-answered consent state is treated is configurable:
+
+```json
+{ "analytics.consentMode": "opt-in" }
+```
+
+- `"opt-out"` (default) — analytics load while consent is pending and stop if
+  the visitor declines. Common US posture.
+- `"opt-in"` — analytics stay off until the visitor explicitly accepts.
+  Use this for sites with EU/EEA audiences (GDPR / ePrivacy).
+
 ## Themes
 
 Themes export a manifest with design tokens (palette, typography, surfaces, CTAs, etc.) that are applied as CSS variables at runtime.

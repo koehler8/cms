@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   ConsentStatus,
   getConsentStatus,
@@ -10,6 +10,7 @@ import {
   hasDeclinedConsent,
   isConsentPending,
   shouldEnableAnalytics,
+  configureAnalyticsConsentMode,
 } from '../../src/utils/cookieConsent.js';
 
 describe('cookieConsent', () => {
@@ -116,13 +117,43 @@ describe('cookieConsent', () => {
       expect(shouldEnableAnalytics()).toBe(true);
     });
 
-    it('returns true when pending (default-on)', () => {
+    it('returns true when pending (default opt-out mode)', () => {
       expect(shouldEnableAnalytics()).toBe(true);
     });
 
     it('returns false when declined', () => {
       declineConsent();
       expect(shouldEnableAnalytics()).toBe(false);
+    });
+  });
+
+  describe('configureAnalyticsConsentMode', () => {
+    afterEach(() => {
+      configureAnalyticsConsentMode('opt-out');
+    });
+
+    it('opt-in: analytics stay off while consent is pending', () => {
+      configureAnalyticsConsentMode('opt-in');
+      expect(shouldEnableAnalytics()).toBe(false);
+    });
+
+    it('opt-in: explicit acceptance still enables analytics', () => {
+      configureAnalyticsConsentMode('opt-in');
+      acceptConsent();
+      expect(shouldEnableAnalytics()).toBe(true);
+    });
+
+    it('opt-in: declined stays disabled', () => {
+      configureAnalyticsConsentMode('opt-in');
+      declineConsent();
+      expect(shouldEnableAnalytics()).toBe(false);
+    });
+
+    it('unknown values normalize to opt-out (today\'s behavior)', () => {
+      configureAnalyticsConsentMode('bogus');
+      expect(shouldEnableAnalytics()).toBe(true);
+      configureAnalyticsConsentMode(undefined);
+      expect(shouldEnableAnalytics()).toBe(true);
     });
   });
 });

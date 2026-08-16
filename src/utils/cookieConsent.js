@@ -113,20 +113,34 @@ export function isConsentPending() {
 }
 
 /**
+ * Consent mode — how the PENDING state (visitor hasn't answered the banner
+ * yet) is treated:
+ *
+ *   'opt-out' (default): analytics load while consent is pending. Matches
+ *     the common US posture; tracking starts immediately and stops if the
+ *     visitor declines.
+ *   'opt-in': analytics stay OFF until the visitor explicitly accepts.
+ *     Required posture under GDPR / the ePrivacy Directive for EU/EEA
+ *     audiences — set `"analytics.consentMode": "opt-in"` in site.json.
+ *
+ * Configured once at boot from site config (see createCmsApp); ACCEPTED and
+ * DECLINED behave identically in both modes.
+ */
+let analyticsConsentMode = 'opt-out';
+
+export function configureAnalyticsConsentMode(mode) {
+  analyticsConsentMode = mode === 'opt-in' ? 'opt-in' : 'opt-out';
+}
+
+/**
  * Determine if analytics should be active.
- * Pending consent defaults to enabled so tracking starts immediately.
- *
- * NOTE: In EU/EEA jurisdictions, GDPR and the ePrivacy Directive require
- * affirmative consent before setting non-essential cookies or loading
- * tracking scripts. If the site targets EU users, consider changing the
- * PENDING case to return false so analytics remain disabled until the
- * user explicitly accepts.
- *
  * @returns {boolean}
  */
 export function shouldEnableAnalytics() {
   const status = getConsentStatus();
-  return status === ConsentStatus.ACCEPTED || status === ConsentStatus.PENDING;
+  if (status === ConsentStatus.ACCEPTED) return true;
+  if (status === ConsentStatus.DECLINED) return false;
+  return analyticsConsentMode === 'opt-out';
 }
 
 let analyticsLoadPromise;
