@@ -8,7 +8,12 @@
       class="site-header__section ui-header__section"
       :class="{ 'ui-header__section--compact': isHeaderCompact }"
     >
-      <nav class="site-header__nav" aria-label="Primary">
+      <nav
+        class="site-header__nav"
+        aria-label="Primary"
+        @keydown.esc="closeNavMenu($event, 'escape')"
+        @focusout="onNavFocusOut"
+      >
         <div class="container">
           <div class="site-header__inner">
             <a href="/" ref="logoLinkRef" class="site-header__logo logo-flash-trigger" :aria-label="`${siteName || 'Home'} – home`">
@@ -33,18 +38,59 @@
             Nav slot. Defaults to a horizontal <ul> of links built from
             `content.header.navItems[]` (each entry: { text, href, target? }).
             No items, no nav.
+
+            Below 720px the row collapses into a disclosure menu behind the
+            toggle button below. Before this existed the list was simply
+            display:none on narrow viewports, which left phone visitors with
+            no primary navigation at all.
           -->
           <slot name="nav" :items="navItems">
-            <ul v-if="navItems.length" class="site-header__nav-list">
+            <ul
+              v-if="navItems.length"
+              id="site-header-nav-menu"
+              ref="navMenuRef"
+              class="site-header__nav-list"
+              :class="{ 'site-header__nav-list--open': isNavOpen }"
+            >
               <li v-for="(item, idx) in navItems" :key="`${item.href || item.text}-${idx}`">
                 <a
                   :href="item.href"
                   :target="item.target || null"
                   :rel="item.target === '_blank' ? 'noopener noreferrer' : null"
+                  @click="closeNavMenu(null, 'selection')"
                 >{{ item.text }}</a>
               </li>
             </ul>
           </slot>
+          <button
+            v-if="navItems.length && !hasNavSlot"
+            ref="navToggleRef"
+            class="site-header__nav-toggle"
+            type="button"
+            aria-controls="site-header-nav-menu"
+            :aria-expanded="isNavOpen ? 'true' : 'false'"
+            :aria-label="isNavOpen ? 'Close menu' : 'Open menu'"
+            @click="toggleNavMenu"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
+              <path
+                v-if="isNavOpen"
+                d="M6 6l12 12M18 6L6 18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+              <path
+                v-else
+                d="M4 7h16M4 12h16M4 17h16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
           <div v-if="hasHeaderActions || showLocaleLinks || hasActionsSlot" class="site-header__actions">
             <!-- Site-provided extra actions, rendered before the locale dropdown. -->
             <slot name="actions" />
@@ -125,8 +171,12 @@ import { readStoredLocale, writeStoredLocale } from '../utils/webStorage.js';
 
   const slots = useSlots();
   const hasActionsSlot = computed(() => Boolean(slots.actions));
+  // A site overriding the nav slot owns its own responsive behaviour, so the
+  // bundled toggle must not render alongside it.
+  const hasNavSlot = computed(() => Boolean(slots.nav));
 
 const isLangOpen = ref(false);
+const isNavOpen = ref(false);
 const isHeaderCompact = ref(false);
 const currentLocale = ref('');
 const availableLocales = computed(() => siteLocales.map((code) => code.trim()).filter(Boolean));
@@ -189,6 +239,8 @@ const localeEmojis = {
 };
   const langButtonRef = ref(null);
   const langMenuRef = ref(null);
+  const navToggleRef = ref(null);
+  const navMenuRef = ref(null);
   const localeWrapperRef = ref(null);
   const localeMenuStyle = ref({ animationDuration: '500ms' });
   const logoLinkRef = ref(null);
@@ -228,9 +280,21 @@ const updateLocaleMenuPosition = () => {
     if (isLangOpen.value) {
       updateLocaleMenuPosition();
     }
+    // Above the breakpoint the toggle is display:none. Leaving isNavOpen true
+    // would strand aria-expanded="true" on a button no longer in the a11y tree.
+    if (isNavOpen.value && typeof window !== 'undefined' && window.innerWidth >= 720) {
+      isNavOpen.value = false;
+    }
   };
 
   const onDocumentClick = (e) => {
+    const navBtn = navToggleRef.value;
+    const navMenu = navMenuRef.value;
+    if (isNavOpen.value && !navBtn?.contains(e.target) && !navMenu?.contains(e.target)) {
+      isNavOpen.value = false;
+      trackEvent('header_nav_menu_toggle', { state: 'close', trigger: 'outside_click' });
+    }
+
     const btn = langButtonRef.value;
     const menu = langMenuRef.value;
     if (btn && btn.contains(e.target)) return; // toggle handled by button
@@ -264,6 +328,41 @@ const updateLocaleMenuPosition = () => {
     if (trigger === 'escape') {
       nextTick(() => langButtonRef.value?.focus());
     }
+  };
+
+  const toggleNavMenu = () => {
+    isNavOpen.value = !isNavOpen.value;
+    trackEvent('header_nav_menu_toggle', {
+      state: isNavOpen.value ? 'open' : 'close',
+      trigger: 'click',
+    });
+  };
+
+  // Mirrors closeLocaleMenu: ESC restores focus to the toggle so keyboard
+  // dismissal doesn't strand focus inside a hidden menu (WCAG 2.4.3, 1.4.13).
+  const closeNavMenu = (event, trigger = 'escape') => {
+    if (!isNavOpen.value) return;
+    if (event) {
+      event.preventDefault?.();
+      event.stopPropagation?.();
+    }
+    isNavOpen.value = false;
+    trackEvent('header_nav_menu_toggle', { state: 'close', trigger });
+    if (trigger === 'escape') {
+      nextTick(() => navToggleRef.value?.focus());
+    }
+  };
+
+  // Closes the menu when focus leaves both the menu and its toggle. Scoped to
+  // those two elements rather than the whole <nav> so tabbing from a menu link
+  // to the locale button (also inside <nav>) still dismisses it.
+  const onNavFocusOut = (event) => {
+    if (!isNavOpen.value) return;
+    const next = event.relatedTarget;
+    if (!next) return;
+    if (navMenuRef.value?.contains(next)) return;
+    if (navToggleRef.value?.contains(next)) return;
+    closeNavMenu(null, 'focusout');
   };
 
   // Closes the menu when keyboard focus leaves the wrapper entirely.
@@ -475,6 +574,17 @@ const updateLocaleMenuPosition = () => {
       currentLocale.value = normalized;
     }
   );
+
+  // In-SPA navigation must dismiss the mobile menu. The link click handler
+  // covers taps on the menu's own links; this covers everything else that
+  // changes the route while it's open (back button, a link elsewhere on the
+  // page, a programmatic push).
+  watch(
+    () => route.path,
+    () => {
+      isNavOpen.value = false;
+    }
+  );
 </script>
 
 <style scoped>
@@ -542,8 +652,13 @@ const updateLocaleMenuPosition = () => {
 }
 
 /* Nav menu rendered from content.header.navItems[]. Sits between the logo
-   and the actions cluster. Hidden on narrow viewports — sites that need
-   responsive nav should override the slot. */
+   and the actions cluster.
+
+   Below 720px it becomes a disclosure panel dropped beneath the header bar,
+   opened by .site-header__nav-toggle. (It used to be plain display:none here,
+   with no toggle — phone visitors got no primary navigation at all.) Sites
+   that want something else still override the nav slot, which also suppresses
+   the bundled toggle. */
 .site-header__nav-list {
   display: none;
   list-style: none;
@@ -552,9 +667,75 @@ const updateLocaleMenuPosition = () => {
   gap: clamp(0.75rem, 2vw, 1.75rem);
   align-items: center;
 }
+.site-header__nav-list--open {
+  /* Containing block is .site-header (position: sticky), so this drops the
+     panel flush under the full-width bar rather than under the inner column. */
+  display: flex;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0.5rem 0;
+  background: var(--brand-header-bg, #020409);
+  border-top: 1px solid var(--ui-header-divider, rgba(255, 255, 255, 0.12));
+  box-shadow: var(--site-header-shadow, 0 18px 45px rgba(0, 0, 0, 0.35));
+  max-height: calc(100dvh - 100%);
+  overflow-y: auto;
+}
+.site-header__nav-list--open a {
+  display: block;
+  /* Comfortably past the 24x24 minimum for pointer targets (WCAG 2.5.8). */
+  padding: 0.85rem clamp(1rem, 5vw, 2rem);
+}
+
+/* Toggle is mobile-only; the row speaks for itself at 720px and up. */
+.site-header__nav-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  /* 44px square — the comfortable touch target, well past WCAG 2.5.8's 24px. */
+  width: 44px;
+  height: 44px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.site-header__nav-toggle:hover {
+  background: var(--ui-header-hover, rgba(255, 255, 255, 0.08));
+}
+
 @media (min-width: 720px) {
   .site-header__nav-list {
     display: flex;
+  }
+  /* Neutralize the open state above the breakpoint: resizing past it while the
+     menu is open must not leave a dropped panel on a desktop layout. */
+  .site-header__nav-list--open {
+    position: static;
+    flex-direction: row;
+    align-items: center;
+    gap: clamp(0.75rem, 2vw, 1.75rem);
+    padding: 0;
+    background: none;
+    border-top: 0;
+    box-shadow: none;
+    max-height: none;
+    overflow-y: visible;
+  }
+  .site-header__nav-list--open a {
+    display: inline;
+    padding: 0;
+  }
+  .site-header__nav-toggle {
+    display: none;
   }
 }
 .site-header__nav-list a {

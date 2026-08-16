@@ -267,6 +267,50 @@ describe('buildSitemap', () => {
       }
     });
   });
+  describe('not-found page', () => {
+    // A site-authored pages/404.json is a real pre-rendered route so the plugin
+    // can copy it to 404.html. It must never reach the sitemap: it carries
+    // noindex, and a noindex URL in a sitemap is a Search Console warning.
+    it('excludes a site-authored 404 page', () => {
+      const xml = buildSitemap(
+        siteConfig({
+          pages: {
+            home: { path: '/' },
+            about: { path: '/about' },
+            404: { path: '/404' },
+          },
+        }),
+      );
+      expect(xml).toContain('<loc>https://example.com/about</loc>');
+      expect(xml).not.toContain('/404');
+    });
+
+    it('excludes it when the file is named something other than 404', () => {
+      const xml = buildSitemap(
+        siteConfig({
+          pages: {
+            home: { path: '/' },
+            'not-found': { path: '/404' },
+          },
+        }),
+      );
+      expect(xml).not.toContain('/404');
+    });
+
+    it('does not exclude ordinary pages whose path merely contains 404', () => {
+      const xml = buildSitemap(
+        siteConfig({
+          pages: {
+            home: { path: '/' },
+            report: { path: '/404-report' },
+            nested: { path: '/errors/404' },
+          },
+        }),
+      );
+      expect(xml).toContain('<loc>https://example.com/404-report</loc>');
+      expect(xml).toContain('<loc>https://example.com/errors/404</loc>');
+    });
+  });
 });
 
 describe('getSitemapUrl', () => {

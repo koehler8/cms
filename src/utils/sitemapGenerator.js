@@ -2,7 +2,10 @@
  * Build sitemap.xml from the inflated site config.
  *
  * Pages where isPathDraft() is true are skipped — drafts must not be in the
- * sitemap. Returns '' when site.url is missing (the sitemap protocol requires
+ * sitemap. The not-found page is skipped for the same reason: it is a real
+ * pre-rendered route (so the plugin can copy it to 404.html) but it carries
+ * noindex, and listing a noindex URL is a Search Console warning.
+ * Returns '' when site.url is missing (the sitemap protocol requires
  * absolute URLs); the plugin treats empty output as "do not write the file."
  *
  * Single-locale sites emit only <loc> per page. Multi-locale sites emit one
@@ -15,6 +18,7 @@
 
 import { isPathDraft, normalizeDraftPath } from './draftMode.js';
 import { buildCanonicalUrl } from './canonicalUrl.js';
+import { isNotFoundPage } from './notFound.js';
 
 function escapeXml(value) {
   return String(value).replace(/[<>&'"]/g, (c) => ({
@@ -48,10 +52,13 @@ export function buildSitemap(siteConfig, options = {}) {
   const entries = [];
   const seenPaths = new Set();
 
-  for (const [, pageData] of Object.entries(pages)) {
+  for (const [pageId, pageData] of Object.entries(pages)) {
     if (!pageData || typeof pageData !== 'object') continue;
     const pagePath = normalizeDraftPath(pageData.path) || '/';
     if (isPathDraft(siteConfig, pagePath, pageData)) continue;
+    // The not-found page is pre-rendered as a real route so the plugin can copy
+    // it to 404.html, but it carries noindex and must never be advertised.
+    if (isNotFoundPage(pageId, pagePath)) continue;
     if (seenPaths.has(pagePath)) continue;
     seenPaths.add(pagePath);
 

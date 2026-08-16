@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A site-authored `pages/404.json` is no longer indexable.** The framework
+  flagged the not-found page via `selectPage`'s fallback branch only, which
+  runs when *no* page matches the requested path. But the authored page
+  necessarily carries `path: "/404"` so the plugin can pre-render it and copy
+  the output to `404.html` — which also makes it an ordinary route. A direct
+  hit on `/404` matched the path loop first and returned a page nothing
+  downstream recognized as a 404: `usePageMeta` emitted a canonical and skipped
+  the `noindex`, and `sitemapGenerator` listed the URL. Sites that followed the
+  documented advice to author a 404 for custom chrome got an indexable,
+  sitemapped `/404` for their trouble.
+
+  Detection now lives in `src/utils/notFound.js` and is shared by the runtime
+  and the build, so they cannot disagree. The page is matched by its reserved
+  `404` id *or* by resolving to `/404`, is flagged at every resolution point,
+  and is excluded from the sitemap. Authoring `pages/404.json` now does what
+  the docs always said it did: custom chrome *and* correct 404 semantics.
+
+- **The bundled `Header` has a mobile navigation menu.** `content.header.navItems[]`
+  was `display: none` below 720px with nothing to open it, so phone visitors
+  got no primary navigation at all — the header's own comment told sites to
+  override the nav slot, which means forking the component. The links now
+  collapse into a disclosure panel behind a 44×44 toggle: `aria-expanded` /
+  `aria-controls` wired up, ESC closes and restores focus to the toggle,
+  focus-out and outside clicks dismiss it, in-SPA navigation and crossing the
+  breakpoint close it. Overriding the nav slot still suppresses the bundled
+  toggle entirely, so sites with their own responsive header are unaffected.
+
 ## 1.0.0
 
 First stable release. The changes below are the three implementation batches

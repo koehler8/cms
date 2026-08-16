@@ -230,3 +230,82 @@ describe('config sync cache (primeConfigSync / peekConfigSync)', () => {
     expect(peekConfigSync('it')).toBeNull();
   });
 });
+
+describe('usePageConfig — not-found page resolution', () => {
+  // A site-authored pages/404.json carries `path: "/404"` so the plugin can
+  // pre-render it and copy the output to 404.html. That makes it an ordinary
+  // route too: visiting /404 directly matches the path loop before the
+  // not-found fallback runs. Without the isNotFound flag, usePageMeta emits a
+  // canonical and omits noindex, and sitemapGenerator lists the page — an
+  // indexable /404, the opposite of what authoring the page is for.
+  function configWithCustom404() {
+    return {
+      site: {},
+      shared: { content: {} },
+      pages: {
+        home: { path: '/', components: [], content: {}, meta: {} },
+        about: { path: '/about', components: [], content: {}, meta: {} },
+        404: {
+          path: '/404',
+          components: [{ name: 'NotFound', enabled: true }],
+          content: {},
+          meta: { title: 'Page not found' },
+        },
+      },
+    };
+  }
+
+  beforeEach(() => {
+    try { localStorage.clear(); } catch { /* no-op */ }
+    setConfigLoader({ loadConfigData: vi.fn(), availableLocales: ['en'], baseLocale: 'en' });
+  });
+
+  it('flags a direct hit on /404 as not-found', () => {
+    primeConfigSync(undefined, configWithCustom404());
+
+    const wrapper = mountPage({ pagePath: '/404' });
+
+    expect(wrapper.vm.currentPage.id).toBe('404');
+    expect(wrapper.vm.currentPage.isNotFound).toBe(true);
+
+    wrapper.unmount();
+  });
+
+  it('still flags the authored page when reached via an unmatched path', () => {
+    primeConfigSync(undefined, configWithCustom404());
+
+    const wrapper = mountPage({ pagePath: '/no/such/page' });
+
+    expect(wrapper.vm.currentPage.isNotFound).toBe(true);
+    // The authored components win over the synthesized sentinel.
+    expect(wrapper.vm.componentKeys.map((c) => c.name)).toEqual(['NotFound']);
+
+    wrapper.unmount();
+  });
+
+  it('does not flag ordinary pages', () => {
+    primeConfigSync(undefined, configWithCustom404());
+
+    const wrapper = mountPage({ pagePath: '/about' });
+
+    expect(wrapper.vm.currentPage.id).toBe('about');
+    expect(wrapper.vm.currentPage.isNotFound).toBeUndefined();
+
+    wrapper.unmount();
+  });
+
+  it('falls back to the synthesized sentinel when no 404 page is authored', () => {
+    primeConfigSync(undefined, {
+      site: {},
+      shared: { content: {} },
+      pages: { home: { path: '/', components: [], content: {}, meta: {} } },
+    });
+
+    const wrapper = mountPage({ pagePath: '/missing' });
+
+    expect(wrapper.vm.currentPage.id).toBe('__not_found__');
+    expect(wrapper.vm.currentPage.isNotFound).toBe(true);
+
+    wrapper.unmount();
+  });
+});

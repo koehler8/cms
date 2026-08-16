@@ -1,6 +1,7 @@
 import { onServerPrefetch, ref, watch } from 'vue';
 import { loadConfigData, mergeConfigTrees, peekConfigSync } from '../utils/loadConfig.js';
 import { readStoredLocale } from '../utils/webStorage.js';
+import { isNotFoundPage, NOT_FOUND_PAGE_ID } from '../utils/notFound.js';
 
 function normalizePath(value) {
   if (!value || typeof value !== 'string') return '/';
@@ -44,7 +45,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
     const resolveById = (id) => {
       const data = pages[id];
       if (!data) return null;
-      return {
+      const resolved = {
         id,
         path: data.path ?? '/',
         components: Array.isArray(data.components) ? [...data.components] : [],
@@ -53,6 +54,13 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
         draft: data.draft,
         jsonld: data.jsonld,
       };
+      // A site-authored pages/404.json resolves like any other route (it has a
+      // real path so the plugin can pre-render it), so the flag has to be set
+      // here rather than only on the not-found fallback below. Otherwise a
+      // direct hit on /404 yields a page usePageMeta treats as ordinary —
+      // canonical emitted, noindex omitted — and sitemapGenerator lists it.
+      if (isNotFoundPage(id, resolved.path)) resolved.isNotFound = true;
+      return resolved;
     };
 
     const currentPageId = typeof pageId === 'function' ? pageId() : pageId;
@@ -67,15 +75,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
       const requestedPath = normalizePath(currentPagePath);
       for (const [id, data] of entries) {
         if (normalizePath(data.path) === requestedPath) {
-          return {
-            id,
-            path: data.path ?? '/',
-            components: Array.isArray(data.components) ? [...data.components] : [],
-            content: data.content || {},
-            meta: data.meta || {},
-            draft: data.draft,
-            jsonld: data.jsonld,
-          };
+          return resolveById(id);
         }
       }
 
@@ -88,8 +88,10 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
       // with their own components[]; otherwise the synthesized sentinel
       // renders the bundled NotFound component.
       if (requestedPath !== '/') {
-        const customNotFound = resolveById('404');
+        const customNotFound = resolveById(NOT_FOUND_PAGE_ID);
         if (customNotFound) {
+          // resolveById already flags this; kept explicit so the guarantee is
+          // visible at the call site that depends on it.
           return { ...customNotFound, isNotFound: true };
         }
         return {
