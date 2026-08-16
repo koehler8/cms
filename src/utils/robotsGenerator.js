@@ -5,9 +5,8 @@
  * to siteRoot/public/robots.txt at config time so per-site draft state
  * regenerates the policy on every build.
  *
- * Always disallows /admin (a non-public route that is never listed in the
- * sitemap). Compliance pages (/privacy, /terms, /cookies) are intentionally
- * NOT disallowed: they are public, footer-linked, emit correct canonicals, and
+ * Compliance pages (/privacy, /terms, /cookies) are intentionally NOT
+ * disallowed: they are public, footer-linked, emit correct canonicals, and
  * appear in sitemap.xml — disallowing them contradicts the sitemap and triggers
  * "Blocked by robots.txt" (pages-in-a-sitemap) errors in Search Console.
  *
@@ -35,7 +34,9 @@
  * If sitemapUrl is provided, appends a "Sitemap: <url>" line.
  */
 
-const FRAMEWORK_DEFAULTS = ['/admin'];
+// No framework-default disallows: every framework route is either public
+// (pages, locales) or non-indexable by construction (/404 emits noindex).
+const FRAMEWORK_DEFAULTS = [];
 
 // Order/grouping mirrors the hand-rolled lists sites had converged on before
 // this became a config option.

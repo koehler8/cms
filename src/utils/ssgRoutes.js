@@ -8,8 +8,8 @@
 
 // Routes every shard renders regardless of its slice. `/404` must be present in
 // each shard's output dir so that shard's `onFinished` can copy 404/index.html
-// → 404.html; `/admin` is a cheap vestigial placeholder kept alongside it.
-export const ALWAYS_SHARDED_ROUTES = ['/404', '/admin'];
+// → 404.html.
+export const ALWAYS_SHARDED_ROUTES = ['/404'];
 
 /**
  * Return shard `k` of `N` from the full SSG route list.

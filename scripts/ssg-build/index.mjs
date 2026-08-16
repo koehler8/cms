@@ -51,7 +51,7 @@ function parseArgs(argv) {
 }
 
 // Estimate the route count the same way the Vite plugin discovers routes
-// (base-locale pages × content locales, + /404 + /admin). Only used to choose
+// (base-locale pages × content locales, + /404). Only used to choose
 // the shard count N; the framework's CMS_SSG_SHARD filter partitions whatever
 // routes actually exist, so an approximate N still yields a correct, complete
 // dist/ — it just tunes slice sizes.
@@ -79,7 +79,7 @@ function estimateRouteCount(siteDir) {
       }).length || 1;
   } catch { /* single locale */ }
 
-  return pages * locales + 2; // + /404 + /admin
+  return pages * locales + 1; // + /404
 }
 
 function resolveViteSsgBin() {

@@ -611,12 +611,11 @@ export default function cmsPlugin(options = {}) {
             }
           },
           includedRoutes(paths) {
-            // /admin is a vestigial placeholder; /404 is the not-found
-            // landing page (rendered via the catch-all + NotFound
-            // component). onFinished above copies dist/404/index.html
-            // to dist/404.html so AWS Amplify serves it for unmatched
-            // URLs with HTTP 404.
-            const staticRoutes = new Set(['/admin', '/404']);
+            // /404 is the not-found landing page (rendered via the
+            // catch-all + NotFound component). onFinished above copies
+            // dist/404/index.html to dist/404.html so AWS Amplify serves
+            // it for unmatched URLs with HTTP 404.
+            const staticRoutes = new Set(['/404']);
             pagePaths.forEach((routePath) => staticRoutes.add(routePath));
 
             // Pre-render every page under each non-base locale prefix that
@@ -646,7 +645,7 @@ export default function cmsPlugin(options = {}) {
             // slice of routes so peak SSG heap is bounded by slice size, not
             // total route count. Unset (the normal `vite-ssg build` path) →
             // the full list, byte-identical to before. (applyRouteShard keeps
-            // /404 + /admin in every shard so each can emit its own 404.html.)
+            // /404 in every shard so each can emit its own 404.html.)
             return applyRouteShard(allRoutes, process.env.CMS_SSG_SHARD);
           },
         },

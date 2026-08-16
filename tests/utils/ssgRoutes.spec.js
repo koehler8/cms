@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { applyRouteShard, ALWAYS_SHARDED_ROUTES } from '../../src/utils/ssgRoutes.js';
 
 describe('applyRouteShard', () => {
-  const routes = ['/', '/404', '/admin', '/about', '/contact', '/blog', '/blog/a', '/blog/b'];
+  const routes = ['/', '/404', '/about', '/contact', '/blog', '/blog/a', '/blog/b'];
   const stripAlways = (arr) => arr.filter((r) => !new Set(ALWAYS_SHARDED_ROUTES).has(r));
 
   it('returns the full list unchanged when the shard spec is absent or malformed', () => {
@@ -14,11 +14,10 @@ describe('applyRouteShard', () => {
     expect(applyRouteShard(routes, '0/0')).toEqual(routes); // n = 0 → invalid
   });
 
-  it('keeps /404 and /admin in every shard (so each can emit 404.html)', () => {
+  it('keeps /404 in every shard (so each can emit 404.html)', () => {
     for (let k = 0; k < 3; k++) {
       const s = applyRouteShard(routes, `${k}/3`);
       expect(s).toContain('/404');
-      expect(s).toContain('/admin');
     }
   });
 
@@ -41,7 +40,6 @@ describe('applyRouteShard', () => {
     expect(stripAlways(applyRouteShard(routes, '5/9'))).toEqual(['/blog/b']);
     const empty = applyRouteShard(routes, '8/9');
     expect(empty).toContain('/404');
-    expect(empty).toContain('/admin');
     expect(stripAlways(empty)).toEqual([]); // empty strided slice is fine
   });
 

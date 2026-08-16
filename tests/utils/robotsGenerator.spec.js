@@ -3,10 +3,12 @@ import { buildRobotsTxt } from '../../src/utils/robotsGenerator.js';
 import { buildSitemap, getSitemapUrl } from '../../src/utils/sitemapGenerator.js';
 
 describe('buildRobotsTxt', () => {
-  it('emits only /admin as a framework default (compliance pages stay crawlable)', () => {
+  it('emits an allow-all policy by default (no framework disallows)', () => {
     const out = buildRobotsTxt({ site: {}, pages: {} });
     expect(out).toContain('User-agent: *');
-    expect(out).toContain('Disallow: /admin');
+    // Empty Disallow value = allow everything (a UA record needs the field).
+    expect(out).toContain('Disallow:\n');
+    expect(out).not.toContain('Disallow: /');
     // Compliance pages are public, sitemap-listed, and must NOT be blocked —
     // disallowing them contradicts the sitemap (Search Console "Blocked by
     // robots.txt"). See robots/sitemap consistency invariant below.
@@ -106,7 +108,7 @@ describe('buildRobotsTxt', () => {
       });
       const blocks = out.split(/\n\n+/);
       const claudeBlock = blocks.find((b) => b.includes('User-agent: ClaudeBot'));
-      expect(claudeBlock).toContain('Disallow: /admin');
+      expect(claudeBlock).toContain('Disallow:');
       expect(out).not.toContain('/hidden');
       expect(out).not.toContain('/secret');
     });
