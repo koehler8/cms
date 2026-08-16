@@ -205,13 +205,17 @@ export function createCmsApp() {
       if (!isClient) {
         try {
           await loadSiteConfig();
-          // Opt-in payload trim: embed only the current page's config in
-          // window.__INITIAL_STATE__ rather than every page's (the full-site
-          // blob is byte-identical on every page and can dominate page weight).
+          // Payload trim (default ON since 1.0.0; opt out with
+          // `"trimInitialState": false`): embed only the current page's config
+          // in window.__INITIAL_STATE__ rather than every page's (the
+          // full-site blob is byte-identical on every page and can dominate
+          // page weight — measured 81% of page bytes on a profiled site).
           // The rendered HTML body is unaffected — usePageConfig resolves the
           // SSR render from its own loadConfigData() call, not from
           // initialState — so this only shrinks the serialized hydration blob.
-          if (initialState.siteConfig?.site?.trimInitialState === true) {
+          // Safety valve: an ambiguous route→page match returns null and the
+          // full config is embedded (a no-op, never a broken page).
+          if (initialState.siteConfig?.site?.trimInitialState !== false) {
             const currentPageId = resolveCurrentPageId(initialState.siteConfig);
             if (currentPageId) {
               initialState.siteConfig = trimConfigToPage(initialState.siteConfig, currentPageId);
