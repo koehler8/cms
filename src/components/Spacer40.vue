@@ -1,9 +1,8 @@
 <template>
-  <div class="ui-spacer" aria-hidden="true" :style="spacerStyle"></div>
+  <Spacer :size="40" />
 </template>
 
 <script setup>
-const spacerStyle = {
-  '--ui-spacer-size': '40px',
-};
+// Alias kept for existing pages/*.json components[] references.
+import Spacer from './Spacer.vue';
 </script>

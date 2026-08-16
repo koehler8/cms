@@ -1,5 +1,5 @@
 <template>
-  <section id="about" class="section-shell intro-section" data-analytics-section="intro">
+  <section id="intro" class="section-shell intro-section" data-analytics-section="intro">
     <div class="container">
       <div class="intro-grid">
         <div class="intro-column">

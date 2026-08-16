@@ -19,7 +19,7 @@ function resolveComponentName(filePath) {
 }
 
 export function createRegistry(modules) {
-  const registry = Object.entries(modules).reduce((acc, [file, module]) => {
+  return Object.entries(modules).reduce((acc, [file, module]) => {
     const component = normalizeComponentEntry(module);
     if (!component) return acc;
 
@@ -29,26 +29,8 @@ export function createRegistry(modules) {
       acc[componentName] = component;
     }
 
-    if (componentName.startsWith('Spacer') && componentName.length > 'Spacer'.length) {
-      const suffix = componentName.slice('Spacer'.length);
-      const parsed = Number.parseInt(suffix, 10);
-      const score = Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
-
-      const existing = acc.__spacerFallback;
-      if (!existing || score < existing.score) {
-        acc.__spacerFallback = { component, score };
-      }
-    }
-
     return acc;
   }, {});
-
-  if (!registry.Spacer && registry.__spacerFallback && registry.__spacerFallback.component) {
-    registry.Spacer = registry.__spacerFallback.component;
-  }
-  delete registry.__spacerFallback;
-
-  return registry;
 }
 
 export const registry = createRegistry(rawModules);

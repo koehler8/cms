@@ -51,28 +51,18 @@ describe('createRegistry', () => {
     expect(registry.Direct).toBe(MockComponent);
   });
 
-  it('creates Spacer fallback from lowest numbered Spacer', () => {
-    const Spacer15 = { name: 'Spacer15' };
-    const Spacer30 = { name: 'Spacer30' };
-    const Spacer60 = { name: 'Spacer60' };
-    const modules = {
-      '../components/Spacer60.vue': { default: Spacer60 },
-      '../components/Spacer15.vue': { default: Spacer15 },
-      '../components/Spacer30.vue': { default: Spacer30 },
-    };
-    const registry = createRegistry(modules);
-    expect(registry.Spacer).toBe(Spacer15);
-  });
-
-  it('does not create Spacer fallback if Spacer already registered', () => {
-    const ExplicitSpacer = { name: 'Spacer' };
+  it('registers Spacer and its numeric aliases as ordinary components', () => {
+    // The generic Spacer.vue is a real file now; the old lowest-numbered
+    // fallback aliasing is gone.
+    const GenericSpacer = { name: 'Spacer' };
     const Spacer15 = { name: 'Spacer15' };
     const modules = {
-      '../components/Spacer.vue': { default: ExplicitSpacer },
+      '../components/Spacer.vue': { default: GenericSpacer },
       '../components/Spacer15.vue': { default: Spacer15 },
     };
     const registry = createRegistry(modules);
-    expect(registry.Spacer).toBe(ExplicitSpacer);
+    expect(registry.Spacer).toBe(GenericSpacer);
+    expect(registry.Spacer15).toBe(Spacer15);
   });
 
   it('returns empty registry for empty modules', () => {
