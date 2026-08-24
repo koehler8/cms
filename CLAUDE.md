@@ -135,6 +135,7 @@ Two failure modes we've seen on consumer sites:
 - **Always `nvm use` before any `npm install` or test run.** The `.nvmrc` here pins 20.19.0; your shell's npm should report `10.8.x`.
 - **Don't bump dep versions in this repo without `nvm use` first.** A regen on the wrong npm propagates the bad lockfile to every consumer site that picks it up.
 - **Publish CI uses `npm ci --ignore-scripts`** for the test gate, on `actions/setup-node` with `node-version-file: .nvmrc`.
+- **`package-lock.json`'s two self-reported `version` fields (root `.version` and `packages[""].version`) can silently drift from `package.json`'s version** if a release bump forgets them — they're metadata only (the lockfile isn't in the `files` array, so it never ships), but the drift compounds release over release if left uncorrected. Run `npm run check:lockfile-version` to detect it. Because `package-lock.json` is floored (never-touch) for every automated pipeline stage in this repo, a detected drift must be corrected by hand — edit only the two `"version"` string literals directly, outside the pipeline, with `nvm use` first; never `npm install`/`npm version`/regen to fix it.
 
 ### Rules to surface to consumer sites
 
