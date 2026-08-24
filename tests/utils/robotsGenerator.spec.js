@@ -171,4 +171,76 @@ describe('buildRobotsTxt', () => {
     expect(sitemapPaths).not.toContain('/secret');
     expect(robots).not.toContain('/secret');
   });
+
+  describe('site.robots.extraSitemaps', () => {
+    // Exists because public/robots.txt is regenerated on every build, so sites
+    // that hand-edited an extra Sitemap: line had it silently reverted on the
+    // next build:ssg — the same failure allowAiCrawlers was added to fix.
+    it('appends one Sitemap line per entry, after the primary', () => {
+      const out = buildRobotsTxt(
+        { site: { robots: { extraSitemaps: ['https://x.test/feed.xml'] } } },
+        'https://x.test/sitemap.xml',
+      );
+      const sitemaps = out.split('\n').filter((l) => l.startsWith('Sitemap: '));
+      expect(sitemaps).toEqual([
+        'Sitemap: https://x.test/sitemap.xml',
+        'Sitemap: https://x.test/feed.xml',
+      ]);
+    });
+
+    it('emits nothing extra when unset, absent or not an array', () => {
+      for (const site of [{}, { robots: {} }, { robots: { extraSitemaps: null } },
+                          { robots: { extraSitemaps: 'https://x.test/feed.xml' } }]) {
+        const out = buildRobotsTxt({ site }, 'https://x.test/sitemap.xml');
+        expect(out.split('\n').filter((l) => l.startsWith('Sitemap: '))).toEqual([
+          'Sitemap: https://x.test/sitemap.xml',
+        ]);
+      }
+    });
+
+    it('trims, skips blanks and non-strings, and de-duplicates', () => {
+      const out = buildRobotsTxt(
+        {
+          site: {
+            robots: {
+              extraSitemaps: [
+                '  https://x.test/feed.xml  ',
+                'https://x.test/feed.xml',
+                'https://x.test/sitemap.xml',
+                '',
+                '   ',
+                42,
+                null,
+              ],
+            },
+          },
+        },
+        'https://x.test/sitemap.xml',
+      );
+      expect(out.split('\n').filter((l) => l.startsWith('Sitemap: '))).toEqual([
+        'Sitemap: https://x.test/sitemap.xml',
+        'Sitemap: https://x.test/feed.xml',
+      ]);
+    });
+
+    it('is skipped entirely for a draft site', () => {
+      // A pre-launch site emits "Disallow: /" and should not be advertising
+      // discovery surfaces at all — same rule as allowAiCrawlers.
+      const out = buildRobotsTxt(
+        { site: { draft: true, robots: { extraSitemaps: ['https://x.test/feed.xml'] } } },
+        'https://x.test/sitemap.xml',
+      );
+      expect(out).toContain('Disallow: /');
+      expect(out).not.toContain('feed.xml');
+    });
+
+    it('works with no primary sitemap at all', () => {
+      const out = buildRobotsTxt(
+        { site: { robots: { extraSitemaps: ['https://x.test/feed.xml'] } } },
+      );
+      expect(out.split('\n').filter((l) => l.startsWith('Sitemap: '))).toEqual([
+        'Sitemap: https://x.test/feed.xml',
+      ]);
+    });
+  });
 });

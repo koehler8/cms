@@ -32,6 +32,17 @@
  * pre-launch site shouldn't explicitly invite crawlers.
  *
  * If sitemapUrl is provided, appends a "Sitemap: <url>" line.
+ *
+ * site.robots.extraSitemaps (opt-in, default none): appends one additional
+ * "Sitemap:" line per entry, after the primary. Google and Bing both accept an
+ * RSS/Atom feed as a sitemap format, so a publication with a nightly-updating
+ * feed can advertise it as a discovery surface alongside sitemap.xml. This has
+ * to be a config option for the same reason allowAiCrawlers does: public/
+ * robots.txt is regenerated on every build, so hand edits are silently
+ * reverted on the next build:ssg. Entries are de-duplicated against each other
+ * and against the primary sitemap, trimmed, and — like allowAiCrawlers —
+ * skipped entirely when site.draft === true, since a pre-launch site should not
+ * be advertising discovery surfaces at all.
  */
 
 // No framework-default disallows: every framework route is either public
@@ -86,9 +97,23 @@ export function buildRobotsTxt(siteConfig, sitemapUrl = '') {
   }
 
   const trimmedSitemap = (sitemapUrl || '').trim();
-  if (trimmedSitemap) {
+  const sitemaps = [];
+  if (trimmedSitemap) sitemaps.push(trimmedSitemap);
+
+  if (site.draft !== true) {
+    const extras = Array.isArray(site.robots?.extraSitemaps) ? site.robots.extraSitemaps : [];
+    for (const entry of extras) {
+      if (typeof entry !== 'string') continue;
+      const url = entry.trim();
+      // A duplicate line is not an error to a crawler, but it reads as a
+      // config bug to anyone opening the file.
+      if (url && !sitemaps.includes(url)) sitemaps.push(url);
+    }
+  }
+
+  if (sitemaps.length) {
     lines.push('');
-    lines.push(`Sitemap: ${trimmedSitemap}`);
+    for (const url of sitemaps) lines.push(`Sitemap: ${url}`);
   }
 
   return `${lines.join('\n')}\n`;

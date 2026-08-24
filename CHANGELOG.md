@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.0
+
+### Added
+
+- **`site.robots.extraSitemaps[]` — advertise a feed as a discovery surface.**
+  Google and Bing both accept an RSS/Atom feed as a sitemap format, so a
+  publication with a nightly-updating feed has a real second discovery channel
+  and no supported way to declare it. This appends one `Sitemap:` line per
+  entry after the primary, de-duplicated and trimmed.
+
+  It has to be a config option for exactly the reason `allowAiCrawlers` did:
+  `public/robots.txt` is regenerated from config on every build, so a site that
+  hand-edited an extra `Sitemap:` line had it silently reverted on the next
+  `build:ssg` — and silently, because nothing fails when a discovery hint
+  disappears. Skipped entirely when `site.draft === true`: a pre-launch site
+  emits `Disallow: /` and should not be advertising anything.
+
+  Purely additive. A site that does not set it produces a byte-identical
+  `robots.txt`.
+
 ## 1.1.0
 
 ### Fixed
