@@ -85,6 +85,64 @@ fails the build if any page comes out blank.)
 | `locales` | all 15 supported | Array of locale codes to enable |
 | `themes` | `[]` | Theme package names to register |
 | `extensions` | `[]` | Extension package names to register |
+| `initialStateTrims` | `[]` | Module paths exporting a hydration-payload trim hook (see below) |
+
+## Hydration payload
+
+Each prerendered page embeds the config it needs as `window.__INITIAL_STATE__`
+so the first client render reproduces the prerendered DOM instead of blanking
+while the async loader runs. On a content-heavy site that blob can dominate
+page weight, so there are two levers.
+
+### `site.trimInitialState` (default: on)
+
+Embeds only the current page's entry from `config.pages` rather than every
+page's, and marks the result `pagesPartial`. After hydration the full config is
+fetched once in the background — deferred to `requestIdleCallback`, since the
+current page has already rendered identically and the full config only matters
+once the reader navigates.
+
+Set it to `false` to embed the whole config. That flag is the single, complete
+rollback for everything in this section.
+
+### `initialStateTrims`
+
+`trimConfigToPage` handles `config.pages`. It cannot touch `config.shared`,
+because knowing which shared content a *route* needs requires the site's own
+notion of what that route resolves to. A site closes that gap with a hook:
+
+```js
+// vite.config.js
+cms({ initialStateTrims: ['./site/components/payloadTrim.js'] })
+```
+
+```js
+// site/components/payloadTrim.js
+export default function payloadTrim(config, { routePath, locale, pageId }) {
+  if (!needsTrimming(config)) return config;   // same reference === no-op
+  return { ...config, shared: prune(config.shared, routePath) };
+}
+```
+
+The hook must be **synchronous and pure** — it runs once per prerendered route,
+which is thousands of times per build. Return the config unchanged (the same
+reference) to no-op; anything that is not a plain object is ignored.
+
+The framework stamps `sharedPartial: true` when a hook actually changes
+something, so a hook cannot forget the marker and ship a payload that is
+permanently short with nothing to repair it. That marker triggers the same
+post-hydration reload as `pagesPartial`, so anything pruned is restored before
+it can be navigated to.
+
+**Never drop `site`, `shared` or `pages` wholesale.** Framework components on
+pages your hook never reasons about read them directly (`useIntroGate`,
+`FooterMinimal`, `ComingSoon`, `NotFound`, `Header`), and a first client render
+without them is a hydration mismatch on every page's chrome. Returns that do
+so are discarded, as are hooks that throw.
+
+Measured on a 767-page publication whose per-locale item bodies lived in
+`shared.json`: payload 65.42 MB → 11.01 MB (−83.2%), gzipped HTML 23.22 MB →
+7.23 MB (−68.9%).
 
 ## Site Configuration
 

@@ -4,6 +4,40 @@
 
 ### Added
 
+- **`initialStateTrims` — let a site prune the hydration payload it alone can
+  reason about.** `trimConfigToPage` reduces `config.pages` to the page being
+  prerendered, but it cannot touch `config.shared`: deciding which shared
+  content a given ROUTE needs requires the site's own notion of what that route
+  resolves to, which the framework has no access to.
+
+  That gap gets expensive for content-heavy sites. On a 767-page publication it
+  measured at 65.42 MB of `__INITIAL_STATE__` — **75.6% of all built HTML** —
+  because every page carried every item's body in every locale, while rendering
+  exactly one. With a hook registered: 11.01 MB (-83.2%), and gzipped HTML
+  23.22 MB -> 7.23 MB (-68.9%). Worst-hit locale pages dropped ~60-73% of their
+  wire weight.
+
+  A site registers a synchronous function through the new plugin option; the
+  framework calls it once per prerendered route, after the page trim, and
+  stamps `sharedPartial: true` if the hook changed anything. `usePageConfig`
+  treats that marker exactly like `pagesPartial`, so whatever the hook prunes
+  is restored by the post-hydration reload before it can be navigated to.
+
+  Registration happens at module-eval time in the generated entry, which is the
+  only seam that works: extension setups run on the client only and are
+  unreachable during SSG. Hooks that throw, return a non-object, or drop
+  `site` / `shared` / `pages` wholesale degrade to a no-op — framework
+  components on pages the hook never reasons about read those directly, and
+  losing one is a hydration mismatch on every page's chrome.
+
+  `sharedPartial` gets its own reload clause rather than riding on
+  `pagesPartial`, because `trimConfigToPage` only sets that flag when a route
+  resolves unambiguously to a page id while the site trim fires either way.
+
+  Purely additive. With no `initialStateTrims` configured the generated entry
+  is **byte-identical** — asserted directly in `tests/vite-plugin.spec.js`,
+  because every site installs this version from npm before opting in.
+
 - **`site.robots.extraSitemaps[]` — advertise a feed as a discovery surface.**
   Google and Bing both accept an RSS/Atom feed as a sitemap format, so a
   publication with a nightly-updating feed has a real second discovery channel
@@ -19,6 +53,24 @@
 
   Purely additive. A site that does not set it produces a byte-identical
   `robots.txt`.
+
+### Changed
+
+- **The partial-embed config reload now waits for idle.** `pagesPartial`
+  triggered `syncPage({ soft: true })` on the critical path of every page load,
+  solely so a later in-SPA navigation could resolve other pages — on one site,
+  eagerly fetching a 157 KB per-locale chunk at 1.375 pages/session, for a
+  navigation most visitors never make.
+
+  The two reload triggers are not equivalent and are no longer treated the
+  same. A saved-locale switch is user-visible — the reader is looking at the
+  wrong language until it resolves — and stays eager. A partial embed is not:
+  the page has already rendered identically from the embed. That one moves to
+  `requestIdleCallback` (with a timeout fallback for Safari before 16.4).
+
+  `lastLocaleKey` is still cleared eagerly, so a navigation that beats the idle
+  callback triggers the full load itself through the route watcher; the idle
+  pass then finds the config current and re-applies it harmlessly.
 
 ## 1.1.0
 
