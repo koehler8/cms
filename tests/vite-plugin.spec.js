@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -365,5 +365,54 @@ describe('collectComponentRefProblems (build-time components[] gate)', () => {
       pagesByLocale: { en: { a: { components: ['', null, {}] }, b: {}, c: { components: 'Header' } } },
     });
     expect(problems).toEqual([]);
+  });
+});
+
+// --- initialStateTrims: the generated entry ---------------------------------
+// buildEntrySource is exported from the plugin specifically so this contract is
+// testable. Importing vite-plugin.js pulls in Vite, so this suite imports it
+// lazily and skips nothing else in the file if that fails.
+describe('buildEntrySource — initialStateTrims', () => {
+  let buildEntrySource;
+
+  beforeAll(async () => {
+    ({ buildEntrySource } = await import('../vite-plugin.js'));
+  });
+
+  it('emits a BYTE-IDENTICAL entry when no trims are configured', () => {
+    // The backward-compatibility gate. site-bang (and every other site on the
+    // framework) will install 1.2.0 from npm BEFORE opting in, so the absent
+    // option has to be provably inert.
+    const withoutArg = buildEntrySource(['cms-theme-x'], ['@scope/ext']);
+    const withEmpty = buildEntrySource(['cms-theme-x'], ['@scope/ext'], []);
+    expect(withEmpty).toBe(withoutArg);
+    expect(withoutArg).not.toContain('registerInitialStateTrim');
+    expect(withoutArg).not.toContain('__trim');
+  });
+
+  it('imports and registers each configured trim', () => {
+    const src = buildEntrySource([], [], ['./site/components/payloadTrim.js']);
+    expect(src).toContain("import __trim0 from './site/components/payloadTrim.js';");
+    expect(src).toContain("import { registerInitialStateTrim } from '@koehler8/cms/utils/initialStateTrim';");
+    expect(src).toContain('registerInitialStateTrim(__trim0);');
+  });
+
+  it('registers BEFORE createCmsApp — the ordering the whole design depends on', () => {
+    // registerInitialStateTrim must run at module-eval time, ahead of the
+    // dynamic import that boots the app; otherwise the SSG pass reads an empty
+    // hook registry and every payload ships untrimmed, silently.
+    const src = buildEntrySource([], [], ['./a.js', './b.js']);
+    const lastRegister = src.lastIndexOf('registerInitialStateTrim(');
+    const appImport = src.indexOf("await import('@koehler8/cms/app')");
+    expect(lastRegister).toBeGreaterThan(-1);
+    expect(appImport).toBeGreaterThan(-1);
+    expect(lastRegister).toBeLessThan(appImport);
+  });
+
+  it('numbers multiple trims independently', () => {
+    const src = buildEntrySource([], [], ['./a.js', './b.js']);
+    expect(src).toContain("import __trim0 from './a.js';");
+    expect(src).toContain("import __trim1 from './b.js';");
+    expect(src).toContain('registerInitialStateTrim(__trim1);');
   });
 });

@@ -13,6 +13,19 @@ function normalizePath(value) {
   return normalized || '/';
 }
 
+// Run a callback when the browser is next idle, falling back to a timeout on
+// engines without requestIdleCallback (Safari before 16.4). Used to move the
+// background config reload off the critical path — see hydrateFromSyncCache.
+function whenIdle(fn, timeout = 4000) {
+  if (typeof window === 'undefined') return () => {};
+  if (typeof window.requestIdleCallback === 'function') {
+    const handle = window.requestIdleCallback(fn, { timeout });
+    return () => window.cancelIdleCallback?.(handle);
+  }
+  const handle = setTimeout(fn, 1);
+  return () => clearTimeout(handle);
+}
+
 function mergeWithSharedContent(sharedContent, pageSpecificContent) {
   const base = sharedContent && typeof sharedContent === 'object' ? sharedContent : {};
   const overrides = pageSpecificContent && typeof pageSpecificContent === 'object' ? pageSpecificContent : {};
@@ -37,6 +50,8 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
   let cachedConfig = null;
   let lastLocaleKey = null;
   let activeRequest = 0;
+  // Cancels a pending idle-scheduled background reload (see hydrateFromSyncCache).
+  let cancelIdleReload = () => {};
 
   function selectPage(config) {
     const pages = config?.pages || {};
@@ -241,16 +256,43 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
     //     route rendered the base locale. If a returning visitor stored a
     //     different locale, reconcile to it. (loadConfigData reads localStorage
     //     when no explicit locale is passed, so the same reload resolves it.)
-    let needsFullReload = Boolean(primed && primed.pagesPartial);
+    // `sharedPartial` is the site-trim marker (see utils/initialStateTrim.js).
+    // It needs the same reload and must be checked independently: a route whose
+    // page id is ambiguous gets no `pagesPartial` at all, so relying on that
+    // flag alone would leave a shared-trimmed payload permanently short with
+    // nothing to repair it.
+    let needsFullReload = Boolean(primed && (primed.pagesPartial || primed.sharedPartial));
 
+    // Only trigger (2) is user-visible: until it resolves the reader is looking
+    // at the WRONG LOCALE. Trigger (1) is not — the current page has already
+    // rendered identically from the partial embed, and the full config only
+    // matters once the reader navigates. So (2) stays eager and (1) waits for
+    // idle. That distinction is the whole point: on a site whose visitors read
+    // one page and leave, the partial-embed reload was fetching a large
+    // per-locale chunk on the critical path for a navigation most of them never
+    // make.
+    let reloadIsUrgent = false;
     if (localeForConfig === undefined) {
       const stored = (readStoredLocale() || '').trim().toLowerCase();
-      if (stored) needsFullReload = true;
+      if (stored) {
+        needsFullReload = true;
+        reloadIsUrgent = true;
+      }
     }
 
     if (needsFullReload) {
-      lastLocaleKey = null; // force syncPage to reload (localStorage-resolved for base routes)
-      syncPage({ soft: true });
+      // Set eagerly, NOT inside the idle callback. syncPage() reloads only when
+      // `!cachedConfig || lastLocaleKey !== localeKey`, and hydrateFromSyncCache
+      // just set both from the partial embed. Clearing the key here means an
+      // in-SPA navigation that beats the idle callback triggers the full load
+      // itself through the route watcher; the idle pass then finds the config
+      // already current and re-applies it harmlessly.
+      lastLocaleKey = null;
+      if (reloadIsUrgent) {
+        syncPage({ soft: true });
+      } else {
+        cancelIdleReload = whenIdle(() => { syncPage({ soft: true }); });
+      }
     }
     return true;
   }
@@ -269,7 +311,14 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
 
   watch(
     () => [getPageId(), getPagePath(), getLocale()],
-    () => { syncPage(); },
+    () => {
+      // A navigation supersedes any idle-scheduled reload: syncPage below does
+      // the full load itself, because hydrateFromSyncCache already cleared
+      // lastLocaleKey.
+      cancelIdleReload();
+      cancelIdleReload = () => {};
+      syncPage();
+    },
   );
 
   return {

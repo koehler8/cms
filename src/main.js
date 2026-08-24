@@ -7,6 +7,7 @@ import { routes, resolveHistory, applyRouterGuards } from './router/index.js';
 
 import { shouldEnableAnalytics, scheduleAnalyticsLoad, configureAnalyticsConsentMode } from './utils/cookieConsent.js';
 import { loadConfigData, primeConfigSync, trimConfigToPage, resolvePageIdForRoute } from './utils/loadConfig.js';
+import { applyInitialStateTrims } from './utils/initialStateTrim.js';
 import { persistAttributionFromLocation } from './utils/trackingContext.js';
 import { applyThemeVariables } from './themes/themeManager.js';
 import { setActiveThemeKey } from './utils/themeColors.js';
@@ -165,10 +166,10 @@ export function createCmsApp() {
       // into `site.trimInitialState`. The matching rules live in the pure,
       // unit-tested resolvePageIdForRoute (returns null on ambiguity → keep the
       // full config, a safe no-op).
-      const resolveCurrentPageId = (config) => {
-        const route = extractCurrentRoute();
-        const rawPath = typeof route?.path === 'string' ? route.path : '';
-        const localeParam = pickLocaleParam(route?.params?.locale);
+      const resolveCurrentPageId = (config, route) => {
+        const resolved = route === undefined ? extractCurrentRoute() : route;
+        const rawPath = typeof resolved?.path === 'string' ? resolved.path : '';
+        const localeParam = pickLocaleParam(resolved?.params?.locale);
         return resolvePageIdForRoute(config, rawPath, localeParam);
       };
 
@@ -216,10 +217,24 @@ export function createCmsApp() {
           // Safety valve: an ambiguous route→page match returns null and the
           // full config is embedded (a no-op, never a broken page).
           if (initialState.siteConfig?.site?.trimInitialState !== false) {
-            const currentPageId = resolveCurrentPageId(initialState.siteConfig);
+            const currentRoute = extractCurrentRoute();
+            const currentPageId = resolveCurrentPageId(initialState.siteConfig, currentRoute);
             if (currentPageId) {
               initialState.siteConfig = trimConfigToPage(initialState.siteConfig, currentPageId);
             }
+            // Then let the site prune `shared` — the half trimConfigToPage
+            // cannot reason about, because only the site knows what a route
+            // resolves to. Stamps `sharedPartial: true` iff a hook actually
+            // changed something; usePageConfig treats that exactly like
+            // `pagesPartial` and reloads the full config after hydration.
+            // Gated on the same trimInitialState flag so that one setting stays
+            // a single, complete rollback for the whole payload optimisation.
+            initialState.siteConfig = applyInitialStateTrims(initialState.siteConfig, {
+              route: currentRoute || null,
+              routePath: typeof currentRoute?.path === 'string' ? currentRoute.path : '',
+              locale: pickLocaleParam(currentRoute?.params?.locale),
+              pageId: currentPageId,
+            });
           }
         } catch (error) {
           console.error('Failed to load site configuration during SSG build', error);

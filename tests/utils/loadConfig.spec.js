@@ -36,6 +36,19 @@ describe('trimConfigToPage', () => {
     },
   });
 
+  it('passes site and shared through BY REFERENCE, not by copy', () => {
+    // Load-bearing for initialStateTrim: the site trim composes on top of this
+    // output, and a well-meaning "deep-clone shared for safety" change here
+    // would silently duplicate the whole shared tree once per prerendered
+    // route — hundreds to thousands of times per build.
+    const source = full();
+    const trimmed = trimConfigToPage(source, 'about');
+    expect(trimmed.shared).toBe(source.shared);
+    expect(trimmed.site).toBe(source.site);
+    expect(trimmed).not.toBe(source);
+    expect(source.pagesPartial).toBeUndefined();
+  });
+
   it('reduces pages to the named page, preserves site+shared, and marks it partial', () => {
     const trimmed = trimConfigToPage(full(), 'about');
     expect(Object.keys(trimmed.pages)).toEqual(['about']);

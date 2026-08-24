@@ -172,7 +172,7 @@ const ENTRY_FILENAME = '.cms-entry.js';
 // When external theme packages are provided via the `themes` option, the plugin
 // generates additional import + registerTheme() calls so themes are available
 // before the app renders.
-function buildEntrySource(themePackages = [], extensionPackages = []) {
+function buildEntrySource(themePackages = [], extensionPackages = [], trimSpecs = []) {
   const themeImports = themePackages.map(
     (pkg, i) => `import __theme${i} from '${pkg}';`
   ).join('\n');
@@ -189,8 +189,20 @@ function buildEntrySource(themePackages = [], extensionPackages = []) {
     (_, i) => `await registerExtension(__ext${i});`
   ).join('\n');
 
+  // Site-supplied hydration-payload trim hooks. Imported and registered at
+  // module-eval time, BEFORE createCmsApp() — extension setups run only on the
+  // client, so they are unreachable during SSG and cannot serve this purpose.
+  const trimImports = trimSpecs.map(
+    (spec, i) => `import __trim${i} from '${spec}';`
+  ).join('\n');
+
+  const trimRegistrations = trimSpecs.map(
+    (_, i) => `registerInitialStateTrim(__trim${i});`
+  ).join('\n');
+
   const needsThemeRegister = themePackages.length > 0;
   const needsExtRegister = extensionPackages.length > 0;
+  const needsTrimRegister = trimSpecs.length > 0;
 
   // Use dynamic import for createCmsApp so that setConfigLoader/etc run
   // BEFORE ViteSSG's auto-mount IIFE.  Static imports are hoisted and
@@ -203,8 +215,10 @@ import { setAssetResolver } from '@koehler8/cms/utils/assetResolver';
 import { setSiteComponents } from '@koehler8/cms/utils/componentRegistry';
 ${needsThemeRegister ? `import { registerTheme } from '@koehler8/cms/themes/themeLoader';` : ''}
 ${needsExtRegister ? `import { registerExtension } from '@koehler8/cms/extensions/extensionLoader';` : ''}
+${needsTrimRegister ? `import { registerInitialStateTrim } from '@koehler8/cms/utils/initialStateTrim';` : ''}
 ${themeImports}
 ${extImports}
+${trimImports}
 
 import * as __cmsConfig from '${VIRTUAL_CONFIG}';
 import * as __cmsStyles from '${VIRTUAL_STYLES}';
@@ -219,6 +233,7 @@ setSiteComponents(__cmsSiteComponents);
 
 ${themeRegistrations}
 ${extRegistrations}
+${trimRegistrations}
 
 const { createCmsApp } = await import('@koehler8/cms/app');
 export const createApp = createCmsApp();
@@ -355,7 +370,7 @@ function discoverExtensionCjsDeps(extensionPackages, projectRoot) {
 // cms-validate-extensions CLI shares the exact same implementation. Imported
 // above (a bare `export ... from` re-export would not bind the name for the
 // plugin's own use) and re-exported here for tests and API stability.
-export { validateExtensionManifests };
+export { validateExtensionManifests, buildEntrySource };
 
 // List every *.vue basename under a directory (recursive). Mirrors the
 // import.meta.glob discovery the runtime registries use.
@@ -441,6 +456,7 @@ export default function cmsPlugin(options = {}) {
     frameworkRoot: frameworkRootOption = __dirname,
     themes: themePackages = [],
     extensions: extensionPackages = [],
+    initialStateTrims: initialStateTrimOption = [],
   } = options;
   // The previous `locales` option is no longer accepted: per-site available
   // locales are now discovered from on-disk content directories. Passing
@@ -462,6 +478,9 @@ export default function cmsPlugin(options = {}) {
   let variantCacheDir;
   let variantManifestPath;
   let imageVariantWidths = [];
+  // Site-supplied initialStateTrim module specifiers, resolved at config time
+  // to something the generated entry (written into siteRoot) can import.
+  let initialStateTrims = [];
   // Closure-scoped (NOT this._isDevServer): Vite 8 binds configureServer to a
   // shared minimal context, not the object buildEnd/closeBundle see, so a
   // property stashed on `this` in one hook is invisible in the others.
@@ -469,7 +488,7 @@ export default function cmsPlugin(options = {}) {
 
   const writeTempFiles = () => {
     // Write entry file (with optional external theme registrations)
-    fs.writeFileSync(tempEntryPath, buildEntrySource(themePackages, extensionPackages), 'utf-8');
+    fs.writeFileSync(tempEntryPath, buildEntrySource(themePackages, extensionPackages, initialStateTrims), 'utf-8');
 
     // Write index.html with site metadata injected and script src pointing
     // at the entry file
@@ -588,6 +607,28 @@ export default function cmsPlugin(options = {}) {
       tempEntryPath = path.join(siteRoot, ENTRY_FILENAME);
       variantCacheDir = computeVariantCacheDir(siteRoot, siteDir);
       variantManifestPath = path.join(variantCacheDir, '.manifest.json');
+
+      // Resolve initialStateTrims to specifiers the generated entry can import.
+      // A relative path that does not exist is a HARD failure at config time:
+      // this hook's failure mode is an invisibly-larger payload, so a typo must
+      // not degrade to a silent no-op.
+      initialStateTrims = (Array.isArray(initialStateTrimOption) ? initialStateTrimOption : [initialStateTrimOption])
+        .filter((spec) => typeof spec === 'string' && spec.trim())
+        .map((spec) => {
+          const trimmed = spec.trim();
+          // Bare package specifier — hand it to the bundler untouched.
+          if (!trimmed.startsWith('.') && !path.isAbsolute(trimmed)) return trimmed;
+          const abs = path.isAbsolute(trimmed) ? trimmed : path.resolve(siteRoot, trimmed);
+          if (!fs.existsSync(abs)) {
+            throw new Error(
+              `[cms] initialStateTrims: no such file: ${trimmed}\n` +
+              `  resolved to: ${abs}\n` +
+              `  (paths are resolved relative to the project root, ${siteRoot})`,
+            );
+          }
+          const rel = path.relative(siteRoot, abs).split(path.sep).join('/');
+          return rel.startsWith('.') ? rel : `./${rel}`;
+        });
 
       // Invalid extension manifests fail the build here, loudly, instead of
       // being silently skipped in the visitor's browser. The returned info
@@ -1101,7 +1142,7 @@ export const assetUrlMap = resolver.assetUrlMap;
           try {
             // Ensure the temp file exists for Vite's module graph
             if (!fs.existsSync(tempEntryPath)) {
-              fs.writeFileSync(tempEntryPath, buildEntrySource(themePackages, extensionPackages), 'utf-8');
+              fs.writeFileSync(tempEntryPath, buildEntrySource(themePackages, extensionPackages, initialStateTrims), 'utf-8');
             }
             // Let Vite transform it (resolves bare specifiers, applies plugins)
             const result = await server.transformRequest(`/${ENTRY_FILENAME}`);

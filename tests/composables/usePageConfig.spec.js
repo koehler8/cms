@@ -149,14 +149,37 @@ describe('usePageConfig — trimmed (partial) embedded config', () => {
     return { site: cfg.site, shared: cfg.shared, pages: { home: cfg.pages.home }, pagesPartial: true };
   };
 
+  // The partial-embed reload is deferred to requestIdleCallback, so a test that
+  // relies on jsdom's real timer firing inside flushPromises() is a race — it
+  // passes or fails depending on scheduling. Replace idle with an explicit
+  // queue the tests drain themselves.
+  let idleQueue;
+  let realRIC;
+  let realCIC;
+
+  const runIdle = async () => {
+    const queued = idleQueue;
+    idleQueue = [];
+    for (const fn of queued) if (typeof fn === 'function') fn();
+    await flushPromises();
+    await nextTick();
+  };
+
   beforeEach(() => {
     try { localStorage.clear(); } catch { /* no-op */ }
     loaderSpy = vi.fn();
     setConfigLoader({ loadConfigData: loaderSpy, availableLocales: ['en'], baseLocale: 'en' });
+    idleQueue = [];
+    realRIC = window.requestIdleCallback;
+    realCIC = window.cancelIdleCallback;
+    window.requestIdleCallback = (fn) => idleQueue.push(fn);
+    window.cancelIdleCallback = (handle) => { idleQueue[handle - 1] = null; };
   });
 
   afterEach(() => {
     try { localStorage.clear(); } catch { /* no-op */ }
+    window.requestIdleCallback = realRIC;
+    window.cancelIdleCallback = realCIC;
   });
 
   it('paints the current page synchronously, then background-loads the full config so nav resolves other pages', async () => {
@@ -168,9 +191,13 @@ describe('usePageConfig — trimmed (partial) embedded config', () => {
     // First paint: home renders synchronously from the partial embed (no flash).
     expect(wrapper.vm.componentKeys.map((c) => c.name)).toEqual(['Hero']);
 
-    // A partial embed triggers one soft background reload of the full config.
+    // The reload is deferred: nothing has been fetched on the critical path.
     await flushPromises();
     await nextTick();
+    expect(loaderSpy).not.toHaveBeenCalled();
+
+    // It lands when the browser goes idle — one soft reload of the full config.
+    await runIdle();
     expect(loaderSpy).toHaveBeenCalledTimes(1);
 
     // In-SPA navigation now resolves another page — it would fall through to the
@@ -183,7 +210,75 @@ describe('usePageConfig — trimmed (partial) embedded config', () => {
     wrapper.unmount();
   });
 
-  it('does not background-reload when the embed is full (pagesPartial absent)', async () => {
+  it('reloads on sharedPartial alone, when pagesPartial is absent', async () => {
+    // The site trim fires even on a route whose page id is ambiguous, and such
+    // a route gets no pagesPartial at all. Without its own clause here the
+    // payload would stay permanently short with nothing to repair it.
+    const cfg = fullTwoPage();
+    primeConfigSync(undefined, { ...cfg, sharedPartial: true });
+    loaderSpy.mockResolvedValue(fullTwoPage());
+
+    const wrapper = mountPage({ pagePath: '/' });
+    await runIdle();
+
+    expect(loaderSpy).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('reloads ONCE when both partial markers are set', async () => {
+    const cfg = fullTwoPage();
+    primeConfigSync(undefined, {
+      site: cfg.site, shared: cfg.shared, pages: { home: cfg.pages.home },
+      pagesPartial: true, sharedPartial: true,
+    });
+    loaderSpy.mockResolvedValue(fullTwoPage());
+
+    const wrapper = mountPage({ pagePath: '/' });
+    await runIdle();
+
+    expect(loaderSpy).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('DEFERS the partial-embed reload to idle, but keeps a locale switch eager', async () => {
+    // The two triggers are not equivalent. A saved-locale switch is
+    // user-visible — the reader is looking at the wrong language until it
+    // resolves — so it must not wait. A partial embed is not: the page has
+    // already rendered identically, and the full config only matters once the
+    // reader navigates. Stub idle so it never fires, and the difference shows.
+    // Partial embed: deferred, so idle never running means nothing is fetched.
+    primeConfigSync(undefined, partialHome());
+    loaderSpy.mockResolvedValue(fullTwoPage());
+
+    const wrapper = mountPage({ pagePath: '/' });
+    await flushPromises();
+    await nextTick();
+    expect(loaderSpy).not.toHaveBeenCalled();
+    expect(wrapper.vm.componentKeys.map((c) => c.name)).toEqual(['Hero']);
+
+    // A navigation arriving before idle self-heals: hydrateFromSyncCache
+    // cleared lastLocaleKey eagerly, so the route watcher's own syncPage does
+    // the full load itself.
+    await wrapper.setProps({ pagePath: '/about' });
+    await flushPromises();
+    await nextTick();
+    expect(loaderSpy).toHaveBeenCalledTimes(1);
+    expect(wrapper.vm.componentKeys.map((c) => c.name)).toEqual(['AboutBody']);
+    wrapper.unmount();
+
+    // A saved-locale switch, by contrast, is user-visible and stays EAGER —
+    // it resolves without idle ever running.
+    loaderSpy.mockClear();
+    localStorage.setItem('cms_locale', 'de');
+    primeConfigSync(undefined, partialHome());
+    const localeWrapper = mountPage({ pagePath: '/' });
+    await flushPromises();
+    await nextTick();
+    expect(loaderSpy).toHaveBeenCalledTimes(1);
+    localeWrapper.unmount();
+  });
+
+  it('does not background-reload when the embed is full (both markers absent)', async () => {
     primeConfigSync(undefined, fullTwoPage());
 
     const wrapper = mountPage({ pagePath: '/' });
