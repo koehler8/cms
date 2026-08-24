@@ -25,7 +25,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "check:lockfile-version": "node scripts/check-lockfile-version.mjs"
   },
   "exports": {
     "./vite": "./vite-plugin.js",
