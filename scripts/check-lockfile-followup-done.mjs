@@ -20,9 +20,9 @@
  * into the gate would hold every future PR hostage to that action.
  *
  * Checks two things:
- *   1. Scope: this work item's commits (relative to `main`) must not modify
- *      package-lock.json, package.json, CLAUDE.md, or
- *      scripts/check-lockfile-version.mjs.
+ *   1. Scope: this work item's commits (relative to `main`) AND its working
+ *      tree (staged or unstaged) must not modify package-lock.json,
+ *      package.json, CLAUDE.md, or scripts/check-lockfile-version.mjs.
  *   2. Tracking: an open GitHub issue on koehler8/cms exists whose body
  *      documents the drift (1.1.0 -> 1.2.0), references PR #6, states PR #6
  *      shipped the detector but not the fix, documents the hand-fix
@@ -48,6 +48,15 @@ const SCOPED_PATHS = [
 
 function run(cmd, args) {
   return execFileSync(cmd, args, { encoding: 'utf-8' }).trim();
+}
+
+// `git status --porcelain` is fixed-width (2-char status code + space before
+// the filename); a blanket .trim() would eat that leading space on the first
+// line and misalign the slice(3) below, so this skips run()'s trim.
+function runPorcelainLines(cmd, args) {
+  return execFileSync(cmd, args, { encoding: 'utf-8' })
+    .split('\n')
+    .filter((line) => line.length > 0);
 }
 
 function checkScope() {
@@ -76,11 +85,18 @@ function checkScope() {
     return { ok: false, messages: [`  git merge-base HEAD ${baseRef} failed: ${err.message}`] };
   }
 
-  const changed = run('git', ['diff', '--name-only', `${mergeBase}...HEAD`])
+  const committed = run('git', ['diff', '--name-only', `${mergeBase}...HEAD`])
     .split('\n')
     .filter(Boolean);
 
-  const touched = SCOPED_PATHS.filter((p) => changed.includes(p));
+  const workingTree = runPorcelainLines('git', ['status', '--porcelain', '--', ...SCOPED_PATHS]).map(
+    (line) => line.slice(3)
+  );
+
+  const touchedCommitted = SCOPED_PATHS.filter((p) => committed.includes(p));
+  const touchedWorkingTree = SCOPED_PATHS.filter((p) => workingTree.includes(p));
+  const touched = [...new Set([...touchedCommitted, ...touchedWorkingTree])];
+
   if (touched.length > 0) {
     return {
       ok: false,
