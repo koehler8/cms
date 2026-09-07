@@ -14,6 +14,16 @@
  * <xhtml:link rel="alternate" hreflang="..." /> cluster plus an `x-default`
  * pointing at the base-locale URL. The single-locale output stays
  * byte-identical to pre-hreflang.
+ *
+ * <lastmod> is emitted for a page only when it supplies `meta.lastmod`, as
+ * either a date (YYYY-MM-DD) or a full ISO 8601 timestamp. The framework never
+ * derives one: build time is not modification time, and a sitemap whose
+ * lastmod moves on every deploy is one search engines learn to ignore
+ * (Google's stated rule is that it must be consistently accurate). A page that
+ * omits it is emitted exactly as before, so existing sites are unchanged.
+ *
+ * All locale variants of a page share its lastmod — a translation of a page is
+ * the same page, and the site is the only thing that knows otherwise.
  */
 
 import { isPathDraft, normalizeDraftPath } from './draftMode.js';
@@ -28,6 +38,33 @@ function escapeXml(value) {
     "'": '&apos;',
     '"': '&quot;',
   }[c]));
+}
+
+// W3C Datetime, the subset the sitemap protocol allows: a complete date, or a
+// complete date plus hours/minutes/seconds and a timezone. Anything else — a
+// bare year, a US-format date, a Date object stringified, a number — is
+// dropped rather than emitted, because a malformed lastmod invalidates the
+// <url> entry for some parsers and is worse than none at all.
+const LASTMOD_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const LASTMOD_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
+export function normalizeLastmod(value) {
+  if (typeof value !== 'string') return '';
+  const raw = value.trim();
+  if (!raw) return '';
+  if (!LASTMOD_DATE.test(raw) && !LASTMOD_DATETIME.test(raw)) return '';
+  // Shape-valid but not a real day (2026-02-30, month 13) — Date rolls those
+  // over silently, so compare the round-trip rather than trusting the parse.
+  const [y, m, d] = raw.slice(0, 10).split('-').map(Number);
+  const probe = new Date(Date.UTC(y, m - 1, d));
+  if (
+    probe.getUTCFullYear() !== y ||
+    probe.getUTCMonth() !== m - 1 ||
+    probe.getUTCDate() !== d
+  ) {
+    return '';
+  }
+  return raw;
 }
 
 export function buildSitemap(siteConfig, options = {}) {
@@ -65,8 +102,10 @@ export function buildSitemap(siteConfig, options = {}) {
     const baseUrl = buildCanonicalUrl({ siteUrl, baseLocale, locale: baseLocale, path: pagePath, trailingSlash });
     if (!baseUrl) continue;
 
+    const lastmod = normalizeLastmod(pageData?.meta?.lastmod);
+
     if (!isMultiLocale) {
-      entries.push({ loc: baseUrl, alternates: [] });
+      entries.push({ loc: baseUrl, alternates: [], lastmod });
       continue;
     }
 
@@ -81,7 +120,7 @@ export function buildSitemap(siteConfig, options = {}) {
 
     for (const loc of availableLocales) {
       const localizedUrl = buildCanonicalUrl({ siteUrl, baseLocale, locale: loc, path: pagePath, trailingSlash });
-      if (localizedUrl) entries.push({ loc: localizedUrl, alternates });
+      if (localizedUrl) entries.push({ loc: localizedUrl, alternates, lastmod });
     }
   }
 
@@ -94,13 +133,24 @@ export function buildSitemap(siteConfig, options = {}) {
     : 'xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"';
 
   const renderUrlEntry = (entry) => {
+    // <lastmod> follows <loc> and precedes the alternates: the sitemap XSD
+    // sequences loc, lastmod, changefreq, priority, and xhtml:link extensions
+    // are appended after those.
+    const lastmodLine = entry.lastmod
+      ? `\n    <lastmod>${escapeXml(entry.lastmod)}</lastmod>`
+      : '';
+
     if (entry.alternates.length === 0) {
-      return `  <url><loc>${escapeXml(entry.loc)}</loc></url>`;
+      // Kept on one line when there is nothing else to emit, so single-locale
+      // sites with no lastmod stay byte-identical to previous versions.
+      return entry.lastmod
+        ? `  <url>\n    <loc>${escapeXml(entry.loc)}</loc>${lastmodLine}\n  </url>`
+        : `  <url><loc>${escapeXml(entry.loc)}</loc></url>`;
     }
     const altLines = entry.alternates
       .map((a) => `    <xhtml:link rel="alternate" hreflang="${escapeXml(a.hreflang)}" href="${escapeXml(a.href)}"/>`)
       .join('\n');
-    return `  <url>\n    <loc>${escapeXml(entry.loc)}</loc>\n${altLines}\n  </url>`;
+    return `  <url>\n    <loc>${escapeXml(entry.loc)}</loc>${lastmodLine}\n${altLines}\n  </url>`;
   };
 
   const urlEntries = entries.map(renderUrlEntry).join('\n');

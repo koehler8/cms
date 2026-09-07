@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSitemap, getSitemapUrl } from '../../src/utils/sitemapGenerator.js';
+import { buildSitemap, getSitemapUrl, normalizeLastmod } from '../../src/utils/sitemapGenerator.js';
 
 function siteConfig({ url = 'https://example.com', pages = {}, site = {} } = {}) {
   return { site: { url, ...site }, pages };
@@ -329,5 +329,75 @@ describe('getSitemapUrl', () => {
   it('returns "" when site.url is missing', () => {
     expect(getSitemapUrl({ site: {} })).toBe('');
     expect(getSitemapUrl(null)).toBe('');
+  });
+});
+
+describe('lastmod', () => {
+  it('emits <lastmod> only for pages that supply meta.lastmod', () => {
+    const xml = buildSitemap(
+      siteConfig({
+        pages: {
+          home: { path: '/', meta: { lastmod: '2026-09-06' } },
+          about: { path: '/about' },
+        },
+      }),
+    );
+    expect(xml).toContain('<loc>https://example.com/</loc>\n    <lastmod>2026-09-06</lastmod>');
+    // The page without one is untouched, and no date is invented for it.
+    expect(xml).toContain('<url><loc>https://example.com/about</loc></url>');
+    expect(xml.match(/<lastmod>/g)).toHaveLength(1);
+  });
+
+  it('leaves output byte-identical when no page supplies one', () => {
+    const pages = { home: { path: '/' }, about: { path: '/about' } };
+    expect(buildSitemap(siteConfig({ pages }))).not.toContain('lastmod');
+  });
+
+  it('accepts a full ISO 8601 timestamp', () => {
+    const xml = buildSitemap(
+      siteConfig({ pages: { home: { path: '/', meta: { lastmod: '2026-09-06T14:30:00Z' } } } }),
+    );
+    expect(xml).toContain('<lastmod>2026-09-06T14:30:00Z</lastmod>');
+  });
+
+  it('drops a malformed lastmod rather than emitting invalid XML', () => {
+    for (const bad of ['2026', '09/06/2026', 'yesterday', '2026-13-01', '2026-02-30', '', '   ']) {
+      const xml = buildSitemap(
+        siteConfig({ pages: { home: { path: '/', meta: { lastmod: bad } } } }),
+      );
+      expect(xml, `expected "${bad}" to be dropped`).not.toContain('<lastmod>');
+    }
+  });
+
+  it('drops non-string lastmod values', () => {
+    for (const bad of [20260906, new Date('2026-09-06'), null, undefined, {}, ['2026-09-06']]) {
+      expect(normalizeLastmod(bad)).toBe('');
+    }
+  });
+
+  it('gives every locale variant of a page the same lastmod', () => {
+    const xml = buildSitemap(
+      siteConfig({ pages: { about: { path: '/about', meta: { lastmod: '2026-09-06' } } } }),
+      { baseLocale: 'en', availableLocales: ['en', 'ja'] },
+    );
+    expect(xml.match(/<lastmod>2026-09-06<\/lastmod>/g)).toHaveLength(2);
+    // Ordering is load-bearing: the sitemap XSD sequences loc then lastmod,
+    // with the xhtml:link alternates after both.
+    expect(xml).toMatch(/<loc>[^<]+<\/loc>\n\s*<lastmod>[^<]+<\/lastmod>\n\s*<xhtml:link/);
+  });
+
+  it('never emits lastmod for a draft or not-found page', () => {
+    const xml = buildSitemap(
+      siteConfig({
+        pages: {
+          secret: { path: '/secret', draft: true, meta: { lastmod: '2026-09-06' } },
+          404: { path: '/404', meta: { lastmod: '2026-09-06' } },
+          home: { path: '/' },
+        },
+      }),
+    );
+    expect(xml).not.toContain('<lastmod>');
+    expect(xml).not.toContain('/secret');
+    expect(xml).not.toContain('/404');
   });
 });
