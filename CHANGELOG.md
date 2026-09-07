@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.3.0
+
+### Added
+
+- **`meta.lastmod` — a page can date its own sitemap entry.** `buildSitemap`
+  now emits `<lastmod>` for any page supplying `meta.lastmod`, as either a
+  complete date (`2026-09-06`) or a full ISO 8601 timestamp
+  (`2026-09-06T14:30:00Z`). All locale variants of a page inherit it — a
+  translation of a page is the same page.
+
+  This matters most for sites that publish on a cadence. Without `lastmod` a
+  crawler has no priority signal distinguishing the piece published last night
+  from one published in May, and has to rediscover that by fetching. On the
+  publication this was built for, Search Console reported **490 URLs
+  "Discovered - currently not indexed" with `Last crawled: N/A`** — found in the
+  sitemap and never fetched at all.
+
+  **The framework never derives a date.** Build time is not modification time,
+  and a sitemap whose `lastmod` moves on every deploy is one search engines
+  learn to ignore — Google's stated rule is that it must be consistently
+  accurate or it is disregarded. Only the site knows when its content actually
+  changed, so only the site can say.
+
+  A malformed value (`2026`, `09/06/2026`, `2026-02-30`, a `Date`, a number) is
+  dropped rather than emitted: an invalid `lastmod` invalidates the whole
+  `<url>` entry for some parsers, which is worse than having none.
+  `normalizeLastmod` is exported for sites that want to validate before writing.
+
+  Output for pages that omit `meta.lastmod` is unchanged, so existing sites see
+  no diff.
+
 ## 1.2.0
 
 ### Added
