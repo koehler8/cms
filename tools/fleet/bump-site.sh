@@ -101,6 +101,18 @@ phase_bump() {
   if [[ "$(ver @koehler8/cms)" != "$CMS_TARGET" ]]; then
     npm install "@koehler8/cms@$CMS_TARGET" --no-audit --no-fund >/dev/null 2>&1 || fail "npm install @koehler8/cms@$CMS_TARGET failed"
   fi
+  # A site that pins a direct dep EXACTLY (no caret — site-buildmill does, for
+  # vite and vue) is invisible to `npm update`. Its targets are named by the
+  # operator, never guessed: EXACT_TARGETS="vite@8.3.0 vue@3.5.43". The exact
+  # style is preserved.
+  if [[ -n "${EXACT_TARGETS:-}" ]]; then
+    npm install ${=EXACT_TARGETS} --save-exact --no-audit --no-fund >/dev/null 2>&1 || fail "npm install --save-exact $EXACT_TARGETS failed"
+    for spec in ${=EXACT_TARGETS}; do
+      local name="${spec%@*}" want="${spec##*@}"
+      [[ "$(ver $name)" == "$want" ]] || fail "$name is $(ver $name), expected exactly $want"
+      [[ "$(jq -r --arg n "$name" '.dependencies[$n] // .devDependencies[$n]' package.json)" == "$want" ]] || fail "$name lost its exact-pin style in package.json"
+    done
+  fi
   assert_toolchain
   local names=($DIRECT $TRANSITIVE)
   [[ "$(ver axios)" != "-" || "$(ver ws)" != "-" ]] && names+=($CRYPTO_TREE)
