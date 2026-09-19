@@ -18,12 +18,32 @@
 #     fetch must ask for --compressed or the body is unreadable.
 
 set -u
-SITE="${1:?usage: verify-live.sh <site-dir-name> [expected-vue-version]}"
-WANT_VUE="${2:-3.5.43}"
+SITE="${1:?usage: verify-live.sh <site-dir-name> [expected-vue-version | snapshot]}"
+MODE="${2:-}"
+WANT_VUE="3.5.43"
+[[ -n "$MODE" && "$MODE" != snapshot ]] && WANT_VUE="$MODE"
 HERE="${0:A:h}"
 ROOT="${FLEET_ROOT:-${HERE:h:h:h}}"
 REGION="${AWS_REGION:-us-east-1}"
+SNAP="${FLEET_SCRATCH:-${TMPDIR:-/tmp}/fleet-bump}/$SITE-live-assets.txt"
 cd "$ROOT/$SITE" || { echo "no such site: $ROOT/$SITE"; exit 2; }
+
+# `snapshot` — run BEFORE a push. Records the entry-asset names production is
+# serving right now, so the post-push run can prove the build actually changed.
+# Needed when the Vue version cannot tell two builds apart: a framework-only
+# release (cms 1.3.0 -> 1.3.1) ships the same Vue, and adds no string literal
+# that survives minification. cms is bundled into the entry chunk, so its hash
+# must move.
+entry_assets() { curl -sL --compressed --max-time 20 "$1/" | grep -o '/assets/[A-Za-z0-9_.-]*\.\(js\|css\)' | sort -u; }
+if [[ "$MODE" == snapshot ]]; then
+  URL=$(jq -r '.url // .["site.url"] // empty' site/content/en/site.json 2>/dev/null); URL="${URL%/}"
+  [[ -n "$URL" ]] || { echo "$SITE: no site url in site.json — cannot snapshot"; exit 2; }
+  mkdir -p "${SNAP:h}"
+  entry_assets "$URL" > "$SNAP"
+  [[ -s "$SNAP" ]] || { echo "$SITE: snapshot came back empty from $URL"; exit 2; }
+  echo "$SITE: snapshot of $(wc -l < "$SNAP" | tr -d ' ') live entry assets -> $SNAP"
+  exit 0
+fi
 
 SHA=$(git rev-parse HEAD)
 read -r APP NAME <<<"$(aws amplify list-apps --region $REGION --max-results 100 \
@@ -78,3 +98,15 @@ printf "%s: job %s SUCCEED %s | %s | sitemap %d urls, checked %d, not-200: %d (%
   "$SITE" "$(echo $JOB | awk '{print $1}')" "${SHA:0:7}" "$URL" "$TOTAL" "${#PICK}" "${#BAD}" "$HOPS" "$VUES" "${ROBOTS:-none}"
 (( ${#BAD} == 0 )) || { printf '  %s\n' $BAD | head -5; exit 1; }
 [[ " $VUES" == *" $WANT_VUE "* ]] || { echo "  expected Vue $WANT_VUE in the live bundle"; exit 1; }
+
+# If a pre-push snapshot exists, the build must have visibly changed. Still
+# identical right after SUCCEED means the edge has not switched over yet, which
+# is "look again" (3), not a failure.
+if [[ -s "$SNAP" ]]; then
+  NOW=$(grep -o '/assets/[A-Za-z0-9_.-]*\.\(js\|css\)' "$T/index.html" | sort -u)
+  if [[ "$NOW" == "$(cat "$SNAP")" ]]; then
+    echo "  live entry assets are still the pre-push set — the new build is not being served yet"; exit 3
+  fi
+  echo "  build changed: $(comm -13 "$SNAP" <(echo "$NOW") | wc -l | tr -d ' ') new entry asset(s) since the pre-push snapshot"
+  rm -f "$SNAP"
+fi

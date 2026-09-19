@@ -18,6 +18,9 @@
 #   FLEET_ROOT     directory holding the site-* repos   (default: parent of this repo)
 #   FLEET_SCRATCH  where builds, logs and the ledger go (default: $TMPDIR/fleet-bump)
 #   CMS_TARGET     @koehler8/cms version to land on     (default: 1.3.0)
+#   CMS_ONLY=1     framework-release pass: move cms and assert NOTHING else did
+#   EXACT_TARGETS  "vite@8.3.0 vue@3.5.43" for a site that pins without a caret
+#   IGNORE_PR_BRANCHES / ALLOW_BM_BRANCHES=1   explicit, narrow pre-flight excuses
 
 set -u
 SITE="${1:?usage: bump-site.sh <site-dir-name> [phase]}"
@@ -122,6 +125,28 @@ phase_bump() {
   cp package-lock.json "$S/$SITE-lock-before.json"
   if [[ "$(ver @koehler8/cms)" != "$CMS_TARGET" ]]; then
     npm install "@koehler8/cms@$CMS_TARGET" --no-audit --no-fund >/dev/null 2>&1 || fail "npm install @koehler8/cms@$CMS_TARGET failed"
+  fi
+  # CMS_ONLY=1 — a framework-release pass. Nothing but cms may move, and that is
+  # ENFORCED, not hoped for: a patch release of anything else landing mid-pass
+  # must not ride along on a commit that says "cms 1.3.0 -> 1.3.1". Valid only
+  # when the release left cms's own dependencies / peerDependencies alone (check
+  # `git diff vA vB -- package.json` in this repo first); then a site's lockfile
+  # changes in exactly two entries — the root (its declared range) and cms.
+  if [[ -n "${CMS_ONLY:-}" ]]; then
+    assert_toolchain
+    [[ "$(ver @koehler8/cms)" == "$CMS_TARGET" ]] || fail "@koehler8/cms is $(ver @koehler8/cms), expected $CMS_TARGET"
+    local drift=$(jq -rn --slurpfile a "$S/$SITE-lock-before.json" --slurpfile b package-lock.json '
+      ($a[0].packages) as $x | ($b[0].packages) as $y
+      | [ (($x | keys) + ($y | keys) | unique)[]
+          | select(. != "" and . != "node_modules/@koehler8/cms")
+          | select(($x[.] // null) != ($y[.] // null)) ]
+      | join(" ")')
+    [[ -z "$drift" ]] || fail "CMS_ONLY: other lockfile entries changed: ${drift:0:300}"
+    local a=$(ver @koehler8/cms "$S/$SITE-lock-before.json")
+    MOVED="@koehler8/cms $a->$(ver @koehler8/cms) (the only lockfile entry that moved)"
+    [[ "$a" == "$CMS_TARGET" ]] && MOVED="nothing (already on $CMS_TARGET)"
+    echo "  bump: $MOVED"
+    return 0
   fi
   # A site that pins a direct dep EXACTLY (no caret — site-buildmill does, for
   # vite and vue) is invisible to `npm update`. Its targets are named by the
