@@ -78,6 +78,21 @@ Read with:
    h1: document.querySelector('h1')?.innerText, saved: localStorage.getItem('cms_locale') })
 ```
 
+Three traps from Batch B (2026-09-19), each of which read as a failure for a minute:
+
+- **Wait 8–10 s after loading `/` before reading the restored state.** The restore rides an idle callback, and a hidden
+  pane idles slowly: at 5 s koehlerfamily still showed English / `lang=en`; at 8 s it was German / `lang=de`. The tab
+  title flipping to the localized one is the tell that it has landed.
+- **Load locale URLs with the trailing slash (`/de/`).** `vite preview` answers `/de` with the *root* shell and lets the
+  client route it — mid-transition you read the homepage canonical and no `<h1>`. Amplify 301s to `/de/` instead.
+- **A hard load of an unknown URL under `vite preview` keeps the homepage's canonical** (the preview server hands back
+  `index.html`; Amplify sends unknown paths to `/404.html`, which has none). Test 404 behaviour either at `/404/`
+  directly or by in-SPA `router.push('/no-such-page')` — that path is comparable with live, and was identical.
+
+On a site where most pages exist only in the base locale (poopee: 1 of 51 translated), the restored state on an
+English-only page reads `lang=de` with canonical `/de/<page>` — exactly what the prerendered `/de/<page>` already ships,
+before and after. It is the content-fallback design, not this fix.
+
 Also require **zero console output** on `/` with a saved locale: the fix must act after mount, not cause a hydration
 mismatch. Clean up after a live check: `localStorage.removeItem('cms_locale')`.
 
