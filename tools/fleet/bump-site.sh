@@ -108,7 +108,11 @@ phase_bump() {
   [[ "$(ver @koehler8/cms)" == "$CMS_TARGET" ]] || fail "@koehler8/cms is $(ver @koehler8/cms), expected $CMS_TARGET"
   # `npm update` can report success and move nothing (it does in the cms repo), so
   # believe the registry, not the exit code: nothing we own may still be outdated.
-  local stale=$(npm outdated --json 2>/dev/null | jq -r --argjson d "$(printf '%s\n' @koehler8/cms $DIRECT | jq -R . | jq -s .)" \
+  # @koehler8/cms is NOT in this list — it is pinned to CMS_TARGET on purpose and
+  # asserted just above. A newer cms being published mid-rollout (1.3.1 landed
+  # during the 1.3.0 fan-out) must not fail a site that landed exactly on target:
+  # which framework release the fleet moves to is a decision, not drift.
+  local stale=$(npm outdated --json 2>/dev/null | jq -r --argjson d "$(printf '%s\n' $DIRECT | jq -R . | jq -s .)" \
     'to_entries[] | select(.key as $k | $d | index($k)) | select(.value.current != .value.wanted) | "\(.key) \(.value.current)->\(.value.wanted)"' | tr '\n' ' ')
   [[ -z "$stale" ]] || fail "did not move: $stale"
   for p in $FROZEN; do
