@@ -10,6 +10,10 @@
  * once before the bump, once after, and diff what the crawler and the visitor
  * would actually receive.
  *
+ * It also compares the theme's fingerprint — the set of CSS custom-property
+ * declarations across dist/assets/*.css — because the page diff never opens a
+ * stylesheet and would not see a palette or type regression.
+ *
  * Hashed asset filenames and bundled JS are expected to differ and are ignored.
  * HTML comments and inline <style> are stripped first: a comment can mention a
  * tag ("<title> is emitted by usePageMeta…") and inline CSS is
@@ -75,6 +79,31 @@ function htmlFiles(root, dir = root, out = new Map()) {
   return out;
 }
 
+// The theme's fingerprint: every CSS custom-property declaration in the built
+// stylesheets, whitespace-normalised and de-duplicated. The page diff above
+// strips inline <style> and never opens a CSS asset, so a palette or type
+// regression — the kind a published theme package or a CSS-minifier bump could
+// introduce — is invisible to it. Hashed filenames and rule order are
+// minifier-dependent; the set of `--name:value` pairs is not (it held identical
+// on three sites through lightningcss 1.32 -> 1.33).
+export function themeFingerprint(distDir) {
+  const assets = join(distDir, 'assets');
+  let files;
+  try {
+    files = readdirSync(assets).filter((name) => name.endsWith('.css'));
+  } catch {
+    return [];
+  }
+  const declarations = new Set();
+  for (const name of files) {
+    const css = readFileSync(join(assets, name), 'utf-8');
+    for (const match of css.matchAll(/(--[A-Za-z0-9_-]+)\s*:\s*([^;}]+)/g)) {
+      declarations.add(`${match[1]}:${match[2].replace(/\s+/g, '')}`);
+    }
+  }
+  return [...declarations].sort();
+}
+
 export function diffDist(beforeDir, afterDir) {
   const before = htmlFiles(beforeDir);
   const after = htmlFiles(afterDir);
@@ -116,7 +145,22 @@ export function diffDist(beforeDir, afterDir) {
     }
   }
 
-  return { pages: before.size, stateBefore, stateAfter, differences };
+  const themeBefore = themeFingerprint(beforeDir);
+  const themeAfter = themeFingerprint(afterDir);
+  const afterSet = new Set(themeAfter);
+  const beforeSet = new Set(themeBefore);
+  const lost = themeBefore.filter((declaration) => !afterSet.has(declaration));
+  const gained = themeAfter.filter((declaration) => !beforeSet.has(declaration));
+  if (lost.length || gained.length) {
+    differences.push({
+      page: 'assets/*.css',
+      signal: 'theme',
+      before: `${lost.length} declaration(s) gone: ${lost.slice(0, 6).join(' | ')}`,
+      after: `${gained.length} declaration(s) new: ${gained.slice(0, 6).join(' | ')}`,
+    });
+  }
+
+  return { pages: before.size, stateBefore, stateAfter, themeDeclarations: themeAfter.length, differences };
 }
 
 function main() {
@@ -127,7 +171,7 @@ function main() {
     return;
   }
 
-  const { pages, stateBefore, stateAfter, differences } = diffDist(beforeDir, afterDir);
+  const { pages, stateBefore, stateAfter, themeDeclarations, differences } = diffDist(beforeDir, afterDir);
   const clip = (value) => (value.length > 160 ? `${value.slice(0, 160)}… (${value.length} chars)` : value);
   for (const { page, signal, before, after } of differences) {
     console.log(`DIFF ${page} [${signal}]\n   before: ${clip(before)}\n   after:  ${clip(after)}`);
@@ -136,12 +180,13 @@ function main() {
   const drift = stateBefore ? (((stateAfter - stateBefore) / stateBefore) * 100).toFixed(2) : '0.00';
   console.log(`pages compared: ${pages}`);
   console.log(`__INITIAL_STATE__ total: ${stateBefore} -> ${stateAfter} bytes (${drift}%)`);
+  console.log(`theme fingerprint: ${themeDeclarations} CSS custom-property declarations`);
   if (differences.length > 0) {
     console.log(`FAIL: ${differences.length} difference(s)`);
     process.exitCode = 1;
     return;
   }
-  console.log('PASS: every page identical on route list, SEO head, structure and text');
+  console.log('PASS: every page identical on route list, SEO head, structure and text; theme unchanged');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

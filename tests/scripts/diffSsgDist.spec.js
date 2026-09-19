@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { diffDist, extractSignals } from '../../scripts/diff-ssg-dist.mjs';
+import { diffDist, extractSignals, themeFingerprint } from '../../scripts/diff-ssg-dist.mjs';
 
 function page({ title = 'Home', canonical = 'https://example.com/', body = '<section><h1>Hi</h1></section>' } = {}) {
   return `<!doctype html><html lang="en"><head>
@@ -86,5 +86,41 @@ describe('diff-ssg-dist: diffDist', () => {
   it('catches a changed sitemap', async () => {
     await write('after', 'sitemap.xml', '<urlset><url/></urlset>');
     expect(run().differences).toEqual([expect.objectContaining({ page: 'sitemap.xml', signal: 'bytes' })]);
+  });
+
+  // The page diff strips inline <style> and never opens a stylesheet, so a
+  // palette or type regression — from a published theme package, or a CSS
+  // minifier bump — built clean and diffed clean. The fingerprint is the set of
+  // custom-property declarations, which survives everything a minifier varies.
+  describe('theme fingerprint', () => {
+    const THEME = ':root[data-site-theme="x"]{--brand-primary:#ed7d3a;--brand-font: "Inter", sans-serif}';
+
+    it('ignores what a minifier changes: filenames, whitespace, rule order, duplicates', async () => {
+      await write('before', 'assets/main-aaaa.css', `${THEME}\n.a { color: var(--brand-primary) }`);
+      await write('after', 'assets/main-bbbb.css', ':root[data-site-theme="x"]{--brand-font:"Inter",sans-serif;--brand-primary:#ed7d3a}');
+      await write('after', 'assets/chunk-cccc.css', ':root{--brand-primary: #ed7d3a}');
+      const result = run();
+      expect(result.differences).toEqual([]);
+      expect(result.themeDeclarations).toBe(2);
+    });
+
+    it('catches a changed token value', async () => {
+      await write('before', 'assets/main-aaaa.css', THEME);
+      await write('after', 'assets/main-bbbb.css', THEME.replace('#ed7d3a', '#ff0000'));
+      const [difference] = run().differences;
+      expect(difference).toMatchObject({ page: 'assets/*.css', signal: 'theme' });
+      expect(difference.before).toContain('--brand-primary:#ed7d3a');
+      expect(difference.after).toContain('--brand-primary:#ff0000');
+    });
+
+    it('catches a token that vanished', async () => {
+      await write('before', 'assets/main-aaaa.css', THEME);
+      await write('after', 'assets/main-bbbb.css', ':root{--brand-primary:#ed7d3a}');
+      expect(run().differences).toEqual([expect.objectContaining({ signal: 'theme' })]);
+    });
+
+    it('is empty, not an error, for a dist with no stylesheets', async () => {
+      expect(themeFingerprint(path.join(root, 'before'))).toEqual([]);
+    });
   });
 });
