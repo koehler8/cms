@@ -147,6 +147,15 @@ Each consuming site repo (e.g. `site-coastalcollective`, `site-bang`) should:
 
 The `site-coastalcollective` CLAUDE.md has a full "Lockfile and npm version" section future Claude sessions can copy into other consumer sites.
 
+### Gating a consumer-site dependency bump
+
+Sites have no test suite — a green `build:ssg` is their only gate, and it cannot see a stripped lockfile or a silently-vanished component. Two standalone scripts close that gap (proven on the 2026-09-19 `site-erea` canary; neither is wired into `npm test` or `builder/verify.json`, since they inspect a *site*, not this repo):
+
+- `node scripts/check-site-lockfile.mjs <siteDir>` — every name a locked package lists under `optionalDependencies` must have a lockfile entry (the exact thing an npm-11 regen strips), both Amplify Linux binaries present with `resolved` + `integrity`, one copy each of `vue` / `vue-router` / `pinia` / `@unhead/vue`, lockfile v3. **Completeness, not a count** — rolldown 1.2.9 dropped its wasm32 binding upstream, so a healthy bump *lowered* the native-entry count.
+- `node scripts/diff-ssg-dist.mjs <dist-before> <dist-after>` — build before and after the bump, then diff the route list and, per page, title / description / robots / canonical / hreflang / og / JSON-LD, section-heading-link-image counts and visible text, plus `sitemap.xml` and `robots.txt` bytes.
+
+Two npm 10.8 traps specific to *this* repo, where `vite`, `vue` and `vue-router` are both peer and dev dependencies: `npm update vite` crashes arborist (`#loadPeerSet` → `Cannot read properties of null (reading 'edgesOut')`), and `npm update` silently leaves `vue`, `vue-router`, `vitest` and `@vitest/coverage-v8` where they were. Use a targeted `npm install <pkg>@<ver> --save-dev` and **confirm each version actually moved**. Consumer sites are unaffected — `npm update` works there.
+
 ## Accessibility (WCAG 2.2 Level AA — hard requirement)
 
 **Every consumer site that ships on this framework must meet WCAG 2.2 Level AA.** Real-estate, hospitality, retail, and similar public-accommodation sites are frequent ADA-lawsuit targets in the US, and AA is the de facto benchmark courts apply. The framework itself was audited and brought to AA in `1.0.0-beta.17` ([CHANGELOG](CHANGELOG.md#100-beta17)) — the bundled components, the `base` theme, and the page wrapper all conform out of the box. Don't regress that, and don't ship a feature that re-introduces a failure pattern.
