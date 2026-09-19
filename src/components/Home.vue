@@ -106,7 +106,11 @@ const {
 const { refreshVisibilityTargets, resetEngagementTracking } = useEngagementTracking({
   getContext: () => ({
     page_id: currentPage.value.id || '',
-    locale: props.locale || '',
+    // The rendered locale, for the same reason as usePageMeta above. An event-
+    // level `locale` overrides the tracking context's own (read from <html
+    // lang>), so the route param here reported '' for every base-locale page
+    // and for saved-locale content restored onto an unprefixed URL.
+    locale: contentLocale.value,
   }),
 });
 

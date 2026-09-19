@@ -27,6 +27,16 @@
   after mount. `diff-ssg-dist` on a 15-locale site (62 pages): identical.
   Pre-existing since the saved-locale restore shipped; reproduced on 1.1.0.
 
+- **Engagement events report the rendered locale.** `Home.vue` passed the
+  route's locale param to `useEngagementTracking`, and an event-level `locale`
+  overrides the tracking context's own (read from `<html lang>`). So scroll-
+  depth and section-view events carried `locale: ''` for every base-locale page
+  — and for saved-locale content restored onto an unprefixed URL — while every
+  other event on the same page said `en` / `de`. They now use `contentLocale`
+  too. **Reporting note:** in GA, the `locale` dimension on these two event
+  families changes from empty to the real code (`en`, …) from the release a
+  site picks this up; earlier rows stay empty.
+
 ## 1.3.0
 
 ### Added
