@@ -65,6 +65,7 @@ const {
   pageContent,
   currentPage,
   componentKeys,
+  contentLocale,
   isLoading,
   loadError,
 } = usePageConfig({
@@ -90,7 +91,10 @@ const {
   attemptUnlock,
 } = useDraftGate({ siteData, currentPage });
 
-usePageMeta({ siteData, currentPage, locale: () => props.locale });
+// Keyed off the locale of the content actually rendered, not the route param:
+// on an unprefixed route a returning visitor's saved locale is restored, and
+// <html lang> / og:locale / canonical must describe that content (WCAG 3.1.1).
+usePageMeta({ siteData, currentPage, locale: () => contentLocale.value });
 
 const {
   isComingSoonVisible,

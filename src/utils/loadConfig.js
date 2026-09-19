@@ -22,6 +22,17 @@ function normalizeLocaleInput(value) {
     return trimmed.length ? trimmed : undefined;
 }
 
+// Which locale a load asks for: the explicit (route) locale when there is one,
+// otherwise the visitor's saved preference. Shared by loadConfigData and
+// resolveContentLocale so "what gets loaded" and "what we say got loaded"
+// can't drift apart. The server has no storage, so SSG always gets `undefined`
+// (base locale) for an unprefixed route.
+function pickRequestedLocale(explicitLocale) {
+    return normalizeLocaleInput(explicitLocale)
+        || normalizeLocaleInput(readStoredLocale())
+        || undefined;
+}
+
 export function cloneConfig(value) {
     if (Array.isArray(value)) {
         return value.map(cloneConfig);
@@ -282,11 +293,7 @@ export function createConfigLoader(allModules) {
             explicitLocale = normalizeLocaleInput(options.locale);
         }
 
-        let locale = explicitLocale;
-
-        if (!locale) {
-            locale = normalizeLocaleInput(readStoredLocale()) || undefined;
-        }
+        const locale = pickRequestedLocale(explicitLocale);
 
         const normalizedLocale = typeof locale === 'string' ? locale.toLowerCase() : undefined;
 
@@ -404,6 +411,23 @@ export function primeConfigSync(locale, config) {
 // path used by usePageConfig; a miss falls back to the async loader.
 export function peekConfigSync(locale) {
   return _syncConfigCache.get(normalizeConfigCacheKey(locale)) || null;
+}
+
+// The locale whose content `loadConfigData({ locale: explicitLocale })` will
+// actually return. An unprefixed route passes no locale, and loadConfigData
+// then restores the visitor's saved locale — so the language on screen can
+// differ from the one the URL implies. Anything that describes the rendered
+// page (<html lang>, og:locale) must follow THIS, not the route param
+// (WCAG 3.1.1). A saved locale with no content on disk loads the base tree,
+// so it resolves to the base locale here too.
+export function resolveContentLocale(explicitLocale) {
+  const explicit = normalizeLocaleInput(explicitLocale);
+  if (explicit) return explicit.toLowerCase();
+  const requested = (pickRequestedLocale() || '').toLowerCase();
+  if (requested && requested !== _baseLocale && _availableLocales.includes(requested)) {
+    return requested;
+  }
+  return _baseLocale || '';
 }
 
 export { _availableLocales as availableLocales };

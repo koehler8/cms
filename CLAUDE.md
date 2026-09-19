@@ -170,6 +170,7 @@ Two npm 10.8 traps specific to *this* repo, where `vite`, `vue` and `vue-router`
 The framework guarantees these for any consuming site that uses the bundled `Home.vue` wrapper, the bundled components, and the `base` theme:
 
 - **Skip link** to `<main id="main-content">` as the first focusable element on the page (WCAG 2.4.1 Bypass Blocks).
+- **`<html lang>` matches the rendered language** (3.1.1 Language of Page). A saved locale is restored onto unprefixed URLs, so the text at `/` can be German; `Home.vue` therefore keys `usePageMeta` off `usePageConfig`'s `contentLocale` (the locale whose content is applied), never the route param. Don't pass `props.locale` to `usePageMeta` again. Pinned by `tests/composables/contentLocale.spec.js`.
 - **Single `<main>` landmark** + `<header>`, `<nav aria-label="…">`, `<footer>` correctly placed (1.3.1 Info and Relationships).
 - **`html { scroll-padding-top: 88px }`** so anchor jumps and skip-link landings are not obscured by the sticky header (2.4.11 Focus Not Obscured).
 - **Real `<label>`s, `aria-required`, `autocomplete`, `aria-live` for errors** on `Contact.vue` (3.3.2 Labels, 4.1.2 Name/Role/Value).

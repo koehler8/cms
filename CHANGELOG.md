@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`<html lang>` now follows the language actually on screen (WCAG 2.2
+  SC 3.1.1, Level A).** On a multi-locale site, a returning visitor's saved
+  locale is restored onto the unprefixed base URL: visit `/de`, then `/`, and
+  the content swaps to German while the URL stays `/`. `usePageMeta` derived
+  `lang` from the *route* — which has no locale at `/` — so the page declared
+  `lang="en"` over German text, and a screen reader read it with English
+  pronunciation rules. `og:locale`, the canonical and the breadcrumb JSON-LD
+  described the English page too, while `<title>` was already German.
+
+  `usePageConfig` now exposes `contentLocale` — the locale whose content is
+  currently applied — and `Home.vue` keys `usePageMeta` off that instead of the
+  route param, so the whole head describes the rendered page (`lang="de"`,
+  `og:locale=de`, canonical `/de`). The new `resolveContentLocale()` in
+  `loadConfig.js` shares its "explicit, else saved" rule with `loadConfigData`
+  so the two can't drift; a saved locale with no content on disk loads the base
+  tree and therefore resolves to the base locale.
+
+  No SSG or hydration change: the server has no storage, and the first client
+  render still reproduces the route's locale from the primed cache —
+  `contentLocale` only moves once different-locale content has been applied,
+  after mount. `diff-ssg-dist` on a 15-locale site (62 pages): identical.
+  Pre-existing since the saved-locale restore shipped; reproduced on 1.1.0.
+
 ## 1.3.0
 
 ### Added

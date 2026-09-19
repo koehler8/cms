@@ -1,5 +1,11 @@
 import { onServerPrefetch, ref, watch } from 'vue';
-import { loadConfigData, mergeConfigTrees, peekConfigSync } from '../utils/loadConfig.js';
+import {
+  baseLocale as configBaseLocale,
+  loadConfigData,
+  mergeConfigTrees,
+  peekConfigSync,
+  resolveContentLocale,
+} from '../utils/loadConfig.js';
 import { readStoredLocale } from '../utils/webStorage.js';
 import { isNotFoundPage, NOT_FOUND_PAGE_ID } from '../utils/notFound.js';
 
@@ -46,8 +52,22 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
   const componentKeys = ref([]);
   const isLoading = ref(false);
   const loadError = ref(null);
+  // The locale of the content currently applied — NOT necessarily the route's.
+  // An unprefixed route (`/`) carries no locale, yet a returning visitor's
+  // saved locale is restored onto it, so German can be on screen at a URL that
+  // implies English. usePageMeta keys <html lang> off this so the declared
+  // language always matches the rendered one (WCAG 3.1.1). It starts as the
+  // route locale — which is what the server rendered — and only moves when
+  // different-locale content is actually applied, after mount, so hydration
+  // still matches the on-disk HTML.
+  const contentLocale = ref(
+    ((typeof locale === 'function' ? locale() : locale) || '').toString().toLowerCase()
+      || configBaseLocale
+      || '',
+  );
 
   let cachedConfig = null;
+  let cachedContentLocale = contentLocale.value;
   let lastLocaleKey = null;
   let activeRequest = 0;
   // Cancels a pending idle-scheduled background reload (see hydrateFromSyncCache).
@@ -189,13 +209,18 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
 
     try {
       if (shouldReload) {
+        // Resolved before the await so it names the same stored preference the
+        // loader is about to read.
+        const resolvedLocale = resolveContentLocale(localeForConfig);
         cachedConfig = await loadConfigData({ locale: localeForConfig });
+        cachedContentLocale = resolvedLocale;
         lastLocaleKey = localeKey;
       }
 
       if (requestId !== activeRequest) return;
 
       applyConfig(cachedConfig);
+      contentLocale.value = cachedContentLocale;
     } catch (error) {
       if (requestId !== activeRequest) return;
       if (import.meta.env.SSR) {
@@ -242,6 +267,10 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
       return false;
     }
     cachedConfig = primed;
+    // The primed config is what the server rendered for this route, and the
+    // server never sees a saved locale — so it is the route's locale, or base.
+    cachedContentLocale = localeForConfig || configBaseLocale || '';
+    contentLocale.value = cachedContentLocale;
     lastLocaleKey = localeKey;
 
     // Decide whether a soft (no blank-out) background reload of the FULL config
@@ -326,6 +355,7 @@ export function usePageConfig({ pageId, pagePath, locale, onPageLoaded } = {}) {
     pageContent,
     currentPage,
     componentKeys,
+    contentLocale,
     isLoading,
     loadError,
     syncPage,
