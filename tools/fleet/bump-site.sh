@@ -83,10 +83,32 @@ phase_pre() {
   local dirty=$(git status --short | wc -l | tr -d ' ')
   [[ "$dirty" == 0 ]] || { git status --short | head -5; fail "working tree is not clean ($dirty files) — someone is working here"; }
   local repo="koehler8/$SITE"
-  local prs=$(gh pr list --repo "$repo" --state open 2>/dev/null | wc -l | tr -d ' ')
-  [[ "$prs" == 0 ]] || fail "$prs open PR(s) on $repo"
-  local bm=$(git ls-remote --heads origin 'bm/*' 2>/dev/null | wc -l | tr -d ' ')
-  [[ "$bm" == 0 ]] || fail "$bm in-flight buildmill branch(es) on origin"
+  # An open PR means someone else may be about to change this repo. A PR the
+  # operator has looked at and judged irrelevant (a stale one that touches no
+  # dependency file) is excused BY BRANCH NAME, one at a time:
+  #   IGNORE_PR_BRANCHES="autonomy/issue-720"
+  # and even then never if it touches package.json or the lockfile.
+  local prs=$(gh pr list --repo "$repo" --state open --json headRefName,number,files 2>/dev/null \
+    | jq -r --arg ignore " ${IGNORE_PR_BRANCHES:-} " \
+      '.[] | .headRefName as $head
+           | ([.files[].path] | any(. == "package.json" or . == "package-lock.json")) as $touchesDeps
+           | select((($ignore | contains(" " + $head + " ")) and ($touchesDeps | not)) | not)
+           | "#\(.number) \($head)"' | tr '\n' ' ')
+  [[ -z "$prs" ]] || fail "open PR(s) on $repo: $prs"
+  # bm/<itemId> heads are buildmill's interim pushes for items in flight. By
+  # default ANY of them stops the run. A paused product leaves them lying around
+  # (site-bang had six), so ALLOW_BM_BRANCHES=1 narrows the rule to what actually
+  # collides: a branch that changes package-lock.json would hit an unmergeable
+  # conflict against this bump. One that does not is left alone and can rebase.
+  local bmHeads=($(git ls-remote --heads origin 'bm/*' 2>/dev/null | awk '{print $2}' | sed 's#refs/heads/##'))
+  if (( ${#bmHeads} > 0 )); then
+    [[ -n "${ALLOW_BM_BRANCHES:-}" ]] || fail "${#bmHeads} in-flight buildmill branch(es) on origin (inspect them; ALLOW_BM_BRANCHES=1 if none touches the lockfile)"
+    git fetch -q origin 'refs/heads/bm/*:refs/remotes/origin/bm/*' 2>/dev/null
+    for head in $bmHeads; do
+      git diff --name-only "origin/main...origin/$head" 2>/dev/null | grep -qx 'package-lock.json' \
+        && fail "buildmill branch $head changes package-lock.json — this bump would strand it on an unmergeable conflict"
+    done
+  fi
   node "$CMS_REPO/scripts/check-site-lockfile.mjs" . >/dev/null || fail "the CURRENT lockfile already fails check-site-lockfile"
   # node_modules must match the lockfile or `npm update` plans against the wrong tree
   npm ci --no-audit --no-fund >/dev/null 2>&1 || fail "npm ci failed on the current lockfile"
