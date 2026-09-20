@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.4.1
+
+### Fixed
+
+- **The embedded config payload is now actually used on locale-prefixed routes.**
+  vite-ssg runs the setup fn *before* `app.use(router)`, so `router.currentRoute`
+  is still `START_LOCATION` (`'/'`, `params: {}`) there — identically on every
+  page. During SSG that was already handled, because vite-ssg hands the route
+  over on `ctx.routePath`. On the **client** it calls the setup fn with no
+  argument at all, so there was nothing to resolve and the code fell through to
+  `START_LOCATION`.
+
+  `loadSiteConfig` derives its cache key from `params.locale`, so the key came
+  out `'default'` on every client page while the SSG had stamped the real locale
+  on `siteConfigLocale`. On a locale-prefixed route the two never matched, so
+  `primeConfigSync` was skipped, `hydrateFromSyncCache` missed, and the client
+  discarded the payload it had just been served and awaited a full config load
+  **inside the setup fn, on the critical path, before mount** — the exact
+  regression the priming machinery exists to prevent.
+
+  Measured on a multi-locale site, same machine and build, only this patch
+  differing. First config chunk on a `/th/` piece page: **44 ms before**
+  (DOMContentLoaded 34 ms — on the critical path), **1364 ms after** (deferred
+  to `requestIdleCallback`, as designed). The load is *deferred, not removed*:
+  `trimConfigToPage` stamps `pagesPartial` on every page, so the idle reload
+  still runs.
+
+  ⚠️ A cross-environment comparison hides this completely. A production bundle
+  that needs ~1.4 s to download and execute shows its config chunks at ~1607 ms,
+  which *looks* deferred when it is in fact immediate. Only a same-environment
+  A/B separates the two.
+
+  **No action needed in a site.** Single-locale sites already stamped `default`
+  and primed correctly, so their behaviour is unchanged; multi-locale sites gain
+  the deferral.
+
 ## 1.4.0
 
 ### Changed
