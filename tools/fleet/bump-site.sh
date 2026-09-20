@@ -17,7 +17,11 @@
 # Environment:
 #   FLEET_ROOT     directory holding the site-* repos   (default: parent of this repo)
 #   FLEET_SCRATCH  where builds, logs and the ledger go (default: $TMPDIR/fleet-bump)
-#   CMS_TARGET     @koehler8/cms version to land on     (default: 1.3.0)
+#   CMS_TARGET     @koehler8/cms version to land on — REQUIRED, no default. A
+#                  baked-in default goes stale the day the fleet moves past it:
+#                  "1.3.0" outlived the 1.3.1 pass, and a default run would have
+#                  DOWNGRADED a site and still reached READY. A target below the
+#                  locked version is refused for the same reason.
 #   CMS_ONLY=1     framework-release pass: move cms and assert NOTHING else did
 #   EXACT_TARGETS  "vite@8.3.0 vue@3.5.43" for a site that pins without a caret
 #   IGNORE_PR_BRANCHES / ALLOW_BM_BRANCHES=1   explicit, narrow pre-flight excuses
@@ -33,7 +37,7 @@ HERE="${0:A:h}"
 CMS_REPO="${HERE:h:h}"
 ROOT="${FLEET_ROOT:-${CMS_REPO:h}}"
 S="${FLEET_SCRATCH:-${TMPDIR:-/tmp}/fleet-bump}"
-CMS_TARGET="${CMS_TARGET:-1.3.0}"
+CMS_TARGET="${CMS_TARGET:-}"
 NODE_PIN="${NODE_PIN:-20.19.0}"
 NPM_PIN="${NPM_PIN:-10.8.*}"
 LEDGER="$S/ledger.jsonl"
@@ -58,6 +62,12 @@ export INDEXNOW_DRY_RUN=1
 fail() { echo "GATE FAILED [$SITE/$CURRENT]: $*"; exit 1; }
 ver()  { jq -r --arg k "node_modules/$1" '.packages[$k].version // "-"' "${2:-package-lock.json}"; }
 html_count() { find "$1" -name '*.html' | wc -l | tr -d ' '; }
+
+require_target() {
+  [[ -n "$CMS_TARGET" ]] || fail "CMS_TARGET is required (the site is on @koehler8/cms $(ver @koehler8/cms)) — which release the fleet moves to is a decision, never a default"
+  local cur=$(ver @koehler8/cms)
+  [[ "$(printf '%s\n%s\n' "$cur" "$CMS_TARGET" | sort -V | tail -1)" == "$CMS_TARGET" ]] || fail "CMS_TARGET=$CMS_TARGET is BELOW the locked $cur — this driver does not downgrade"
+}
 
 assert_toolchain() {
   local n=$(node -v) m=$(npm -v)
@@ -89,6 +99,7 @@ timed_build() { # $1 = label (before|after)
 
 phase_pre() {
   assert_toolchain
+  require_target
   git pull --ff-only >/dev/null 2>&1 || fail "git pull --ff-only failed"
   local dirty=$(git status --short | wc -l | tr -d ' ')
   [[ "$dirty" == 0 ]] || { git status --short | head -5; fail "working tree is not clean ($dirty files) — someone is working here"; }
@@ -129,6 +140,7 @@ phase_baseline() { assert_toolchain; timed_build before; }
 
 phase_bump() {
   assert_toolchain
+  require_target
   cp package-lock.json "$S/$SITE-lock-before.json"
   if [[ "$(ver @koehler8/cms)" != "$CMS_TARGET" ]]; then
     npm install "@koehler8/cms@$CMS_TARGET" --no-audit --no-fund >/dev/null 2>&1 || fail "npm install @koehler8/cms@$CMS_TARGET failed"
