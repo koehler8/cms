@@ -49,7 +49,7 @@ jobs:
           node-version-file: .nvmrc
           registry-url: 'https://registry.npmjs.org'
 
-      # OIDC publishing needs npm >= 11.5; the pinned Node 20.19 ships 10.8.
+      # OIDC publishing needs npm >= 11.5; the pinned Node (.nvmrc, 22.x) ships 10.9.
       - name: Upgrade npm for trusted publishing
         run: npm install -g npm@^11
 

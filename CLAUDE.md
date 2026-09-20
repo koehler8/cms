@@ -123,7 +123,7 @@ The package ships as **source** (see the `files` field and the `exports` map poi
 
 ## Lockfile and npm version (this is the #1 source of consumer-site deploy failures)
 
-The framework targets **Node 20.19 / npm 10.8** — pinned in [package.json](package.json) `engines` and [.nvmrc](.nvmrc). AWS Amplify (the typical deploy target for consumer sites) runs the same. **Local installs with a different npm version produce subtly different lockfiles** that look fine locally but break CI.
+This repo develops and CI-tests on **Node 22.23.2 / npm 10.9** ([.nvmrc](.nvmrc), since 2026-09-19 — Node 20 went EOL 2026-04-30; 22 is the newest line still on npm 10, **never 24**, which ships npm 11). The published `engines` floor in [package.json](package.json) stays `>=20.19.0` for consumers. Consumer sites and their Amplify builds are moving 20.19.0 → 22.23.2 one at a time (`tools/fleet/node-site.sh`); until a site's own `.nvmrc` says otherwise it is still on 20.19 / npm 10.8. npm 10.9.8 was measured to leave npm-10.8-written lockfiles byte-identical, so the two coexist safely. **Local installs with a different npm version produce subtly different lockfiles** that look fine locally but break CI.
 
 Two failure modes we've seen on consumer sites:
 
@@ -132,7 +132,7 @@ Two failure modes we've seen on consumer sites:
 
 ### Rules for maintainers
 
-- **Always `nvm use` before any `npm install` or test run.** The `.nvmrc` here pins 20.19.0; your shell's npm should report `10.8.x`.
+- **Always `nvm use` before any `npm install` or test run.** The `.nvmrc` here pins 22.23.2; your shell's npm should report `10.9.x` (in a consumer site, whatever its own `.nvmrc` pins).
 - **Don't bump dep versions in this repo without `nvm use` first.** A regen on the wrong npm propagates the bad lockfile to every consumer site that picks it up.
 - **Publish CI uses `npm ci --ignore-scripts`** for the test gate, on `actions/setup-node` with `node-version-file: .nvmrc`.
 - **`package-lock.json`'s two self-reported `version` fields (root `.version` and `packages[""].version`) can silently drift from `package.json`'s version** if a release bump forgets them — they're metadata only (the lockfile isn't in the `files` array, so it never ships), but the drift compounds release over release if left uncorrected. Run `npm run check:lockfile-version` to detect it. Because `package-lock.json` is floored (never-touch) for every automated pipeline stage in this repo, a detected drift must be corrected by hand — edit only the two `"version"` string literals directly, outside the pipeline, with `nvm use` first; never `npm install`/`npm version`/regen to fix it.
