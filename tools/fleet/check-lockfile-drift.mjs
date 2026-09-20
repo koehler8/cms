@@ -83,9 +83,16 @@ function canonical(value) {
 
 /**
  * Every entry reachable from the named packages through `dependencies` and
- * `optionalDependencies`. Peers are deliberately not edges (see the header).
+ * `optionalDependencies` — and, with `{ peers: true }`, `peerDependencies` too.
+ *
+ * Peers are NOT edges by default (see the header): on a bump, following them
+ * from `ethers` reaches half the site. On a REMOVAL they are exactly the right
+ * edge, because npm 7+ auto-installs peers, so a package that existed only to
+ * satisfy a peer of the removed tree is legitimately orphaned by the uninstall.
+ * Following them there is safe only because classifyRemoval independently
+ * forbids anything being added or any version moving.
  */
-export function reachableFrom(packages, names) {
+export function reachableFrom(packages, names, { peers = false } = {}) {
   const wanted = new Set(names);
   const seen = new Set();
   const queue = [];
@@ -101,6 +108,7 @@ export function reachableFrom(packages, names) {
     const deps = [
       ...Object.keys(entry.dependencies ?? {}),
       ...Object.keys(entry.optionalDependencies ?? {}),
+      ...(peers ? Object.keys(entry.peerDependencies ?? {}) : []),
     ];
     for (const dep of deps) {
       const target = resolveFrom(packages, key, dep);
@@ -156,6 +164,57 @@ export function classifyDrift(before, after, names) {
     .sort();
 
   return { expected, unexpected, rootRanges, rootOther };
+}
+
+/**
+ * The gate for an UNINSTALL. Two clauses, and the second is what makes the
+ * first one's peer walk safe:
+ *   1. every changed entry is a removal, or a metadata-only change (same
+ *      version — npm rewrites dev/peer/optional flags as the tree shrinks).
+ *      NOTHING may be added and NO version may move.
+ *   2. every removal was reachable from the uninstalled package in the BEFORE
+ *      tree, peers included.
+ * An uninstall that quietly re-resolves a surviving package is not a removal,
+ * and this refuses it.
+ */
+export function classifyRemoval(before, after, names) {
+  const b = before?.packages ?? {};
+  const a = after?.packages ?? {};
+  const named = new Set(names);
+  const reach = reachableFrom(b, names, { peers: true });
+
+  const removed = [];
+  const metadata = [];
+  const violations = [];
+  for (const key of [...new Set([...Object.keys(b), ...Object.keys(a)])].sort()) {
+    if (key === '') continue;
+    if (canonical(b[key] ?? null) === canonical(a[key] ?? null)) continue;
+    const item = { key, name: entryName(key), from: b[key]?.version ?? null, to: a[key]?.version ?? null };
+    if (!(key in a)) {
+      if (reach.has(key) || named.has(item.name)) removed.push(item);
+      else violations.push({ ...item, why: 'removed, but nothing in the uninstalled tree reached it' });
+    } else if (!(key in b)) {
+      violations.push({ ...item, why: 'ADDED by an uninstall' });
+    } else if (b[key].version !== a[key].version) {
+      violations.push({ ...item, why: 'version MOVED during an uninstall' });
+    } else {
+      metadata.push(item);
+    }
+  }
+
+  const rootBefore = b[''] ?? {};
+  const rootAfter = a[''] ?? {};
+  for (const block of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
+    const x = rootBefore[block] ?? {};
+    const y = rootAfter[block] ?? {};
+    for (const name of [...new Set([...Object.keys(x), ...Object.keys(y)])].sort()) {
+      if (x[name] === y[name]) continue;
+      if (named.has(name) && y[name] === undefined) continue;
+      violations.push({ key: '', name, from: x[name] ?? null, to: y[name] ?? null, why: `package.json ${block} changed and it is not the uninstall` });
+    }
+  }
+
+  return { removed, metadata, violations };
 }
 
 /* ---------------------------------------------------------------- semver -- */
@@ -263,7 +322,7 @@ export function checkPeer(lock, dependent, peer) {
 
 export function parseArgs(argv) {
   const positional = [];
-  const options = { allow: [], single: [], peer: [], json: false };
+  const options = { allow: [], single: [], peer: [], removalOf: [], json: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--json') options.json = true;
@@ -271,6 +330,11 @@ export function parseArgs(argv) {
       const value = argv[i + 1];
       if (value === undefined) throw new Error(`${arg} needs a value`);
       options[arg.slice(2)].push(value);
+      i += 1;
+    } else if (arg === '--removal-of') {
+      const value = argv[i + 1];
+      if (value === undefined) throw new Error('--removal-of needs a value');
+      options.removalOf.push(value);
       i += 1;
     } else if (arg.startsWith('--')) throw new Error(`unknown option ${arg}`);
     else positional.push(arg);
@@ -287,13 +351,31 @@ function describe(item) {
 async function main() {
   const { positional, options } = parseArgs(process.argv.slice(2));
   const [beforePath, afterPath] = positional;
-  if (!beforePath || !afterPath || options.allow.length === 0) {
+  if (!beforePath || !afterPath || (options.allow.length === 0 && options.removalOf.length === 0)) {
     console.error('usage: check-lockfile-drift.mjs <before-lock> <after-lock> --allow <name> [...]');
+    console.error('   or: check-lockfile-drift.mjs <before-lock> <after-lock> --removal-of <name> [...]');
     process.exitCode = 2;
     return;
   }
   const before = JSON.parse(await readFile(beforePath, 'utf-8'));
   const after = JSON.parse(await readFile(afterPath, 'utf-8'));
+
+  if (options.removalOf.length > 0) {
+    const { removed, metadata, violations } = classifyRemoval(before, after, options.removalOf);
+    if (options.json) {
+      console.log(JSON.stringify({ removed, metadata, violations }, null, 2));
+    } else {
+      for (const item of removed) console.log(`${describe(item)}`);
+      console.error(`  ${removed.length} entries removed, ${metadata.length} flag-only, 0 added, 0 versions moved`);
+    }
+    if (violations.length > 0) {
+      console.error(`uninstalling [${options.removalOf.join(' ')}] did more than remove:`);
+      console.error(violations.map((v) => `  - ${describe(v)} — ${v.why}`).join('\n'));
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   const result = classifyDrift(before, after, options.allow);
 
   const problems = [];

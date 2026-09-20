@@ -36,6 +36,17 @@
 #                  A name given as name@version is INSTALLED at that version in
 #                  the same npm install as cms, so peers resolve together; a bare
 #                  name is allow-listed only.
+#   REMOVE_PKG     "@koehler8/cms-ext-crypto" — UNINSTALL a package the site no
+#                  longer uses. Gated by the uninstall rule, which is stricter
+#                  than a bump's: nothing may be ADDED, no surviving version may
+#                  MOVE, and every removal must have been reachable from the
+#                  uninstalled package — peers INCLUDED, because npm 7+ installs
+#                  peers, so a peer-only orphan is legitimately swept out.
+#   EXPECT_PAGE_DIFF="<why>"  the built pages are EXPECTED to change, and the
+#                  operator says in words what should change. `after` then prints
+#                  the diff for review instead of failing on it, and records the
+#                  reason in the ledger so the commit message carries it. Never
+#                  set this to get past a diff you have not read.
 #   EXACT_TARGETS  "vite@8.3.0 vue@3.5.43" for a site that pins without a caret
 #   IGNORE_PR_BRANCHES / ALLOW_BM_BRANCHES=1   explicit, narrow pre-flight excuses
 #   NODE_PIN / NPM_PIN   the toolchain every phase asserts (default: 22.23.2 / 10.9.* —
@@ -185,6 +196,41 @@ phase_bump() {
   MODE=deps
   MOVED_JSON='[]'
   NAMES_JSON='[]'
+
+  # REMOVE_PKG — uninstall a package the fleet no longer uses. The cheapest way
+  # to clear an advisory is to stop shipping the tree that carries it.
+  if [[ -n "${REMOVE_PKG:-}" ]]; then
+    MODE=remove
+    local removing=(${=REMOVE_PKG})
+    NAMES_JSON=$(printf '%s\n' $removing | jq -R . | jq -sc .)
+    [[ "$(ver @koehler8/cms)" == "$CMS_TARGET" ]] \
+      || fail "REMOVE_PKG: the site is on @koehler8/cms $(ver @koehler8/cms), not $CMS_TARGET — this mode asserts the framework, it never moves it"
+    for p in $removing; do
+      [[ "$(ver $p)" != "-" ]] || fail "$p is not installed here — nothing to remove"
+      grep -q "\"$p\"" vite.config.js && fail "$p is still REGISTERED in vite.config.js — unregister it in the same commit, by hand, before running this"
+    done
+    npm uninstall $removing --no-audit --no-fund >/dev/null 2>&1 || fail "npm uninstall $REMOVE_PKG failed"
+    for p in $removing; do
+      [[ "$(ver $p)" == "-" ]] || fail "$p is STILL in the lockfile after uninstall"
+      [[ "$(jq -r --arg n "$p" '.dependencies[$n] // .devDependencies[$n] // "-"' package.json)" == "-" ]] || fail "$p is still declared in package.json"
+    done
+    local flags=()
+    for n in $removing; do flags+=(--removal-of "$n"); done
+    local nb=$(jq '.packages|length' "$S/$SITE-lock-before.json")
+    drift_gate $flags
+    local na=$(jq '.packages|length' package-lock.json)
+    # 250+ removals is not a useful commit body; summarise by scope instead
+    local tops=$(comm -23 \
+      <(jq -r '.packages|keys[]|select(test("^node_modules/(@[^/]+/)?[^/]+$"))' "$S/$SITE-lock-before.json" | sed 's#^node_modules/##' | sort) \
+      <(jq -r '.packages|keys[]|select(test("^node_modules/(@[^/]+/)?[^/]+$"))' package-lock.json | sed 's#^node_modules/##' | sort))
+    MOVED_JSON=$(printf '%s\n' "uninstalled ${(j:, :)removing}" \
+      "lockfile $nb -> $na entries ($(echo "$tops" | grep -c .) top-level packages gone)" \
+      $(echo "$tops" | grep '^@' | cut -d/ -f1 | sort | uniq -c | sort -rn | awk '{printf "%s/* (%s)\n", $2, $1}') \
+      | jq -R . | jq -sc .)
+    MOVED="uninstalled ${(j:, :)removing}; lockfile $nb -> $na entries"
+    echo "  bump[remove]: $MOVED"
+    return 0
+  fi
 
   # NAMED_ONLY — move transitive packages by name and nothing else. The
   # framework is ASSERTED here, never installed: this mode exists for a
@@ -357,8 +403,22 @@ phase_after() {
   timed_build after
   local hb=$(html_count "$S/$SITE-dist-before") ha=$(html_count "$S/$SITE-dist-after")
   [[ "$hb" == "$ha" && "$ha" != 0 ]] || fail "HTML count $hb -> $ha (a partial SSG failure reads as missing routes)"
-  node "$CMS_REPO/scripts/diff-ssg-dist.mjs" "$S/$SITE-dist-before" "$S/$SITE-dist-after" > "$S/$SITE-diff.log" 2>&1 \
-    || { head -24 "$S/$SITE-diff.log"; fail "diff-ssg-dist found differences (full log: $S/$SITE-diff.log)"; }
+  # A dependency change must leave every page identical -- EXCEPT when the whole
+  # point is that a page changes (unregistering an extension takes its component
+  # out of the header). Then the operator must say in words what should change;
+  # the diff is PRINTED for review and the reason is recorded, never silently
+  # waved through. An empty EXPECT_PAGE_DIFF is not accepted.
+  if node "$CMS_REPO/scripts/diff-ssg-dist.mjs" "$S/$SITE-dist-before" "$S/$SITE-dist-after" > "$S/$SITE-diff.log" 2>&1; then
+    PAGES_DIFFER=0
+  elif [[ -n "${EXPECT_PAGE_DIFF:-}" ]]; then
+    PAGES_DIFFER=1
+    echo "  after: pages DIFFER, as expected — \"$EXPECT_PAGE_DIFF\""
+    echo "  ----- diff-ssg-dist (read this; it is not a gate in this mode) -----"
+    sed 's/^/    /' "$S/$SITE-diff.log" | head -40
+    echo "  ----- full log: $S/$SITE-diff.log -----"
+  else
+    head -24 "$S/$SITE-diff.log"; fail "diff-ssg-dist found differences (full log: $S/$SITE-diff.log)"
+  fi
   thin() { (cd "$1" && find . -name '*.html' -size -4k | sort); }
   diff <(thin "$S/$SITE-dist-before") <(thin "$S/$SITE-dist-after") >/dev/null || fail "the set of near-empty pages changed"
   [[ -z "$(git status --short -- vite.config.js amplify.yml)" ]] || fail "a never-touch file changed"
@@ -370,14 +430,17 @@ phase_after() {
   for sc in builder/scanners/token-surface.mjs(N) builder/scanners/canon-tripwires.mjs(N); do
     [[ "$(node "$sc" 2>/dev/null | tr -d ' \n')" == "[]" ]] || fail "scanner $sc reports findings"
   done
+  [[ "${PAGES_DIFFER:-0}" == 0 ]] || echo "  after: $ha pages, differences reviewed above"
   local theme=$(grep -o 'theme fingerprint: [0-9]*' "$S/$SITE-diff.log" | grep -o '[0-9]*$')
   local rss_before=$(grep "maximum resident set size" "$S/$SITE-build-before.log" | awk '{printf "%.0f", $1/1048576}')
-  echo "  after: $ha pages identical, theme unchanged ($theme declarations), checks green=$checks, peakRSS ${rss_before}->${RSS_MB}MB"
+  local verdict="$ha pages identical"; [[ "${PAGES_DIFFER:-0}" == 0 ]] || verdict="$ha pages, diff reviewed"
+  echo "  after: $verdict, theme unchanged ($theme declarations), checks green=$checks, peakRSS ${rss_before}->${RSS_MB}MB"
   jq -nc --arg site "$SITE" --arg cms "$(ver @koehler8/cms)" --arg vite "$(ver vite)" --arg vue "$(ver vue)" \
      --argjson pages "$ha" --argjson theme "${theme:-0}" --argjson rss "${RSS_MB:-0}" --argjson checks "$checks" \
      --argjson audit "${AUDIT:-\"UNKNOWN\"}" --arg at "$(date -u +%FT%TZ)" \
      --arg mode "${MODE:-deps}" --argjson moved "${MOVED_JSON:-[]}" --argjson names "${NAMES_JSON:-[]}" \
-     '{site:$site,result:"READY",mode:$mode,names:$names,moved:$moved,cms:$cms,vite:$vite,vue:$vue,pages:$pages,theme:$theme,peakRssMb:$rss,checks:$checks,audit:$audit,at:$at}' >> "$LEDGER"
+     --argjson pagesDiffer "${PAGES_DIFFER:-0}" --arg pageDiffReason "${EXPECT_PAGE_DIFF:-}" \
+     '{site:$site,result:"READY",mode:$mode,names:$names,moved:$moved,pagesDiffer:($pagesDiffer==1),pageDiffReason:$pageDiffReason,cms:$cms,vite:$vite,vue:$vue,pages:$pages,theme:$theme,peakRssMb:$rss,checks:$checks,audit:$audit,at:$at}' >> "$LEDGER"
 }
 
 phase_restore() {

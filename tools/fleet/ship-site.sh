@@ -51,6 +51,11 @@ TRACK=$(echo "$L" | jq -r '.track // "deps"')
 changed=$(git status --short | awk '{print $2}' | sort | tr '\n' ' ')
 if [[ "$MODE" == node ]]; then
   [[ "$changed" == ".nvmrc amplify.yml " ]] || { echo "$SITE: unexpected changes: [$changed] (node mode ships exactly .nvmrc + amplify.yml)"; exit 1; }
+elif [[ "$(grep "\"site\":\"$SITE\"" "$S/ledger.jsonl" 2>/dev/null | tail -1 | jq -r '.mode // "deps"')" == remove ]]; then
+  # a removal may also have to unregister the extension from vite.config.js --
+  # the one case where that never-touch file legitimately changes
+  [[ "$changed" == "package-lock.json package.json " || "$changed" == "package-lock.json package.json vite.config.js " ]] \
+    || { echo "$SITE: unexpected changes: [$changed] (a removal ships package.json + lockfile, plus vite.config.js only when unregistering)"; exit 1; }
 else
   [[ "$changed" == "package-lock.json package.json " || "$changed" == "package-lock.json " ]] || { echo "$SITE: unexpected changes: [$changed]"; exit 1; }
 fi
@@ -137,6 +142,8 @@ elif [[ "$BUMP_MODE" == named ]]; then
   if [[ -z "$headline" ]]; then subject="chore(deps): refresh ${(j:, :)names} in range"
   else subject="chore(deps): $headline"; fi
   (( other > 0 )) && subject="$subject (+$other transitive)"
+elif [[ "$BUMP_MODE" == remove ]]; then
+  subject="chore(deps): remove the unused ${(j:, :)names} dependency"
 elif [[ "$BUMP_MODE" == plus ]]; then
   subject="chore(deps): @koehler8/cms $(v @koehler8/cms "$B") -> $(v @koehler8/cms)"
   [[ -n "$headline" ]] && subject="$subject + $headline"
@@ -151,6 +158,8 @@ scope="Dependency versions only; $toolchain. No visible change."
 [[ "$only_cms" == yes ]] && scope="Framework release only: exactly one lockfile entry moved (asserted by the driver's CMS_ONLY gate). $toolchain."
 if [[ "$BUMP_MODE" == named ]]; then
   scope="Transitive packages only, by name: ${(j:, :)names}. Every lockfile entry that changed is one of those or a dependency of one, and package.json is untouched (asserted by the driver's NAMED_ONLY gate); @koehler8/cms stays $(v @koehler8/cms). $toolchain. No visible change."
+elif [[ "$BUMP_MODE" == remove ]]; then
+  scope="Uninstall only: ${(j:, :)names}. Nothing was added and no surviving package moved version — every removed lockfile entry was reachable from the uninstalled package in the pre-removal tree, peers included (asserted by the driver's REMOVE_PKG gate). $toolchain."
 elif [[ "$BUMP_MODE" == plus ]]; then
   scope="Framework release plus the companions it brings with it: ${(j:, :)names}. Every lockfile entry that changed is cms, one of those, or a dependency of one; exactly one copy of pinia in the tree and every declared pinia peer satisfied (asserted by the driver's CMS_PLUS gate). $toolchain."
 fi
@@ -158,7 +167,14 @@ fi
 # before the push, so the post-push verify-live run can prove the build changed
 "$HERE/verify-live.sh" "$SITE" snapshot >/dev/null 2>&1 || echo "$SITE: (no live snapshot — verify-live will rely on the Amplify job alone)"
 
+pagesNote=""
+if [[ "$(echo "$L" | jq -r '.pagesDiffer // false')" == true ]]; then
+  pagesNote="The built pages DO change here, deliberately: $(echo "$L" | jq -r '.pageDiffReason'). The
+diff was printed and reviewed rather than gated on."
+fi
+
 git add package.json package-lock.json
+[[ -n "$(git status --short -- vite.config.js)" ]] && git add vite.config.js
 git commit -q -F - <<EOF
 $subject
 
@@ -173,10 +189,12 @@ Gated by cms tools/fleet/bump-site.sh before this commit:
 - Amplify rehearsal in a clean copy: \`npm install --prefer-offline\`
   leaves the lockfile byte-identical, \`npm ci\` passes, a linux-x64
   install materialises both native bindings.
-- Built as amplify.yml builds it, before and after: $pages pages identical
-  on route list, SEO head, structure and text; sitemap.xml + robots.txt
-  byte-identical; theme unchanged ($theme CSS custom-property
-  declarations); peak RSS ${rss} MB; acceptance checks green: $checks.
+- Built as amplify.yml builds it, before and after: $pages pages compared
+  on route list, SEO head, structure and text; theme unchanged ($theme CSS
+  custom-property declarations); peak RSS ${rss} MB; acceptance checks
+  green: $checks.
+${pagesNote:+$pagesNote
+}
 - npm audit after: $audit
 ${NOTE:+
 $NOTE

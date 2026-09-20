@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   classifyDrift,
+  classifyRemoval,
   copiesOf,
   checkPeer,
   entryName,
@@ -151,6 +152,12 @@ describe('check-lockfile-drift — tree helpers', () => {
     ]);
   });
 
+  it('reachableFrom follows peers ONLY when asked', () => {
+    const lock = extLock();
+    expect(reachableFrom(lock.packages, ['@reown/appkit-adapter-ethers'])).not.toContain('node_modules/@ethersproject/sha2');
+    expect(reachableFrom(lock.packages, ['@reown/appkit-adapter-ethers'], { peers: true })).toContain('node_modules/@ethersproject/sha2');
+  });
+
   it('reachableFrom includes optionalDependencies (the platform binaries)', () => {
     const lock = siteLock();
     lock.packages['node_modules/ethers'].optionalDependencies = { bufferutil: '4.0.0' };
@@ -248,11 +255,113 @@ describe('check-lockfile-drift — parseArgs', () => {
       ['a.json', 'b.json', '--allow', 'ethers', '--allow', 'ws', '--single', 'pinia', '--peer', 'vue-router:pinia', '--json']
     );
     expect(positional).toEqual(['a.json', 'b.json']);
-    expect(options).toEqual({ allow: ['ethers', 'ws'], single: ['pinia'], peer: ['vue-router:pinia'], json: true });
+    expect(options).toEqual({ allow: ['ethers', 'ws'], single: ['pinia'], peer: ['vue-router:pinia'], removalOf: [], json: true });
   });
 
   it('refuses an unknown flag and a flag with no value', () => {
     expect(() => parseArgs(['--nope'])).toThrow(/unknown option/);
     expect(() => parseArgs(['--allow'])).toThrow(/needs a value/);
+  });
+});
+
+// The uninstall gate. Shaped like the nine crypto-declaring sites, where the
+// real removal turned out to hang partly off a PEER edge: @reown/appkit-adapter-
+// ethers peer-depends on @ethersproject/sha2, which npm 7+ auto-installs, and
+// which is legitimately orphaned when the extension goes.
+function extLock() {
+  return {
+    lockfileVersion: 3,
+    packages: {
+      '': { name: '@koehler8/site-example', dependencies: { '@koehler8/cms': '^1.3.1', '@koehler8/cms-ext-crypto': '^1.0.0-beta.4' } },
+      'node_modules/@koehler8/cms': { version: '1.3.1' },
+      'node_modules/@koehler8/cms-ext-crypto': { version: '1.0.0-beta.4', dependencies: { '@reown/appkit-adapter-ethers': '1.8.19', ethers: '^6.13.5' } },
+      'node_modules/@reown/appkit-adapter-ethers': { version: '1.8.19', peerDependencies: { '@ethersproject/sha2': '5.8.0' } },
+      'node_modules/@ethersproject/sha2': { version: '5.8.0', dependencies: { 'hash.js': '1.1.7' } },
+      'node_modules/hash.js': { version: '1.1.7', dependencies: { inherits: '^2.0.3' } },
+      'node_modules/ethers': { version: '6.16.0', dependencies: { ws: '8.17.1' } },
+      'node_modules/ws': { version: '8.17.1' },
+      'node_modules/inherits': { version: '2.0.4', dev: false },
+      'node_modules/sharp': { version: '0.35.4', dependencies: { inherits: '^2.0.3' } },
+    },
+  };
+}
+
+/** what npm leaves behind after `npm uninstall @koehler8/cms-ext-crypto` */
+function afterUninstall() {
+  const lock = extLock();
+  for (const key of [
+    'node_modules/@koehler8/cms-ext-crypto',
+    'node_modules/@reown/appkit-adapter-ethers',
+    'node_modules/@ethersproject/sha2',
+    'node_modules/hash.js',
+    'node_modules/ethers',
+    'node_modules/ws',
+  ]) delete lock.packages[key];
+  delete lock.packages[''].dependencies['@koehler8/cms-ext-crypto'];
+  lock.packages['node_modules/inherits'] = { version: '2.0.4', dev: true }; // flag-only: sharp still needs it
+  return lock;
+}
+
+describe('check-lockfile-drift — classifyRemoval (the uninstall gate)', () => {
+  it('accepts a clean uninstall, following PEER edges to reach the orphans', () => {
+    const result = classifyRemoval(extLock(), afterUninstall(), ['@koehler8/cms-ext-crypto']);
+    expect(result.violations).toEqual([]);
+    expect(result.removed.map((item) => item.name).sort()).toEqual([
+      '@ethersproject/sha2', '@koehler8/cms-ext-crypto', '@reown/appkit-adapter-ethers', 'ethers', 'hash.js', 'ws',
+    ]);
+    // inherits SURVIVES at the same version with a changed flag -- that is not a removal
+    expect(result.metadata.map((item) => item.name)).toEqual(['inherits']);
+  });
+
+  it('would MISS the peer-reached orphans if peers were not followed', () => {
+    // the plain drift rule is deliberately stricter about edges; this pins WHY
+    // the two gates differ rather than leaving it to a comment
+    const drift = classifyDrift(extLock(), afterUninstall(), ['@koehler8/cms-ext-crypto']);
+    // sha2 hangs off a peer edge, hash.js off sha2, and `inherits` is only
+    // reachable through hash.js -- three legitimate orphans the bump rule calls drift
+    expect(drift.unexpected.map((item) => item.name).sort()).toEqual(['@ethersproject/sha2', 'hash.js', 'inherits']);
+  });
+
+  it('refuses an uninstall that ADDS an entry', () => {
+    const after = afterUninstall();
+    after.packages['node_modules/sneaky'] = { version: '1.0.0' };
+    const result = classifyRemoval(extLock(), after, ['@koehler8/cms-ext-crypto']);
+    expect(result.violations).toEqual([
+      { key: 'node_modules/sneaky', name: 'sneaky', from: null, to: '1.0.0', why: 'ADDED by an uninstall' },
+    ]);
+  });
+
+  it('refuses an uninstall that MOVES a surviving version', () => {
+    const after = afterUninstall();
+    after.packages['node_modules/sharp'].version = '0.36.0';
+    const result = classifyRemoval(extLock(), after, ['@koehler8/cms-ext-crypto']);
+    expect(result.violations).toMatchObject([{ name: 'sharp', why: 'version MOVED during an uninstall' }]);
+  });
+
+  it('refuses a removal nothing in the uninstalled tree reached', () => {
+    const after = afterUninstall();
+    delete after.packages['node_modules/sharp'];
+    const result = classifyRemoval(extLock(), after, ['@koehler8/cms-ext-crypto']);
+    expect(result.violations).toMatchObject([
+      { name: 'sharp', why: 'removed, but nothing in the uninstalled tree reached it' },
+    ]);
+  });
+
+  it('allows the uninstalled name to leave package.json, and nothing else to change there', () => {
+    const clean = classifyRemoval(extLock(), afterUninstall(), ['@koehler8/cms-ext-crypto']);
+    expect(clean.violations).toEqual([]);
+    const after = afterUninstall();
+    after.packages[''].dependencies['@koehler8/cms'] = '^1.4.0';
+    expect(classifyRemoval(extLock(), after, ['@koehler8/cms-ext-crypto']).violations).toMatchObject([
+      { name: '@koehler8/cms', why: 'package.json dependencies changed and it is not the uninstall' },
+    ]);
+  });
+
+  it('refuses a package.json entry REAPPEARING under the uninstalled name', () => {
+    const after = afterUninstall();
+    after.packages[''].dependencies['@koehler8/cms-ext-crypto'] = '^2.0.0';
+    expect(classifyRemoval(extLock(), after, ['@koehler8/cms-ext-crypto']).violations).toMatchObject([
+      { name: '@koehler8/cms-ext-crypto', to: '^2.0.0' },
+    ]);
   });
 });
