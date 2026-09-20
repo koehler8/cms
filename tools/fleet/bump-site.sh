@@ -25,7 +25,8 @@
 #   CMS_ONLY=1     framework-release pass: move cms and assert NOTHING else did
 #   EXACT_TARGETS  "vite@8.3.0 vue@3.5.43" for a site that pins without a caret
 #   IGNORE_PR_BRANCHES / ALLOW_BM_BRANCHES=1   explicit, narrow pre-flight excuses
-#   NODE_PIN / NPM_PIN   the toolchain every phase asserts (default: 20.19.0 / 10.8.*).
+#   NODE_PIN / NPM_PIN   the toolchain every phase asserts (default: 22.23.2 / 10.9.* —
+#                  the fleet pin since 2026-09-20; was 20.19.0 / 10.8.*).
 #                  The site's .nvmrc must agree — a site that has moved to another
 #                  Node fails `pre` loudly until the operator names it. Moving a
 #                  site's Node is node-site.sh's job, never this script's.
@@ -38,8 +39,8 @@ CMS_REPO="${HERE:h:h}"
 ROOT="${FLEET_ROOT:-${CMS_REPO:h}}"
 S="${FLEET_SCRATCH:-${TMPDIR:-/tmp}/fleet-bump}"
 CMS_TARGET="${CMS_TARGET:-}"
-NODE_PIN="${NODE_PIN:-20.19.0}"
-NPM_PIN="${NPM_PIN:-10.8.*}"
+NODE_PIN="${NODE_PIN:-22.23.2}"
+NPM_PIN="${NPM_PIN:-10.9.*}"
 LEDGER="$S/ledger.jsonl"
 mkdir -p "$S"
 cd "$ROOT/$SITE" || { echo "no such site: $ROOT/$SITE"; exit 2; }

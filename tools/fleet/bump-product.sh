@@ -64,7 +64,10 @@ ver()  { jq -r --arg k "$1" '[.packages | to_entries[] | select(.key | endswith(
 
 assert_toolchain() {
   local n=$(node -v) m=$(npm -v)
-  [[ "$n" == "v20.19.0" && "$m" == 10.8.* ]] || fail "node $n / npm $m — need v20.19.0 / 10.8.x (run nvm use)"
+  # The fleet pin since 2026-09-20 (Track 2). Was hardcoded v20.19.0 / 10.8.x, which
+  # made this driver refuse every product the day they all moved to Node 22.
+  local want_node="${NODE_PIN:-22.23.2}" want_npm="${NPM_PIN:-10.9.*}"
+  [[ "$n" == "v$want_node" && "$m" == ${~want_npm} ]] || fail "node $n / npm $m — need v$want_node / $want_npm (run nvm use; override with NODE_PIN / NPM_PIN)"
 }
 
 # Dirty-tree check that tolerates exactly the paths the operator named.
