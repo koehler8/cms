@@ -1,5 +1,46 @@
 # Changelog
 
+## 1.4.0
+
+### Changed
+
+- **The bundled Pinia is now 4.x (was 3.x).** `createPinia()` runs Pinia 4.0.3
+  and that is the instance handed to every extension through
+  `runExtensionSetups({ app, router, pinia, ... })`.
+
+  **If you maintain an extension that declares `peerDependencies.pinia`, widen
+  it to admit `^4`** — for example `"pinia": "^3.0.0 || ^4.0.0"`. An extension
+  pinned to `^3` will fail to install alongside this release.
+  (`@koehler8/cms-ext-crypto` 1.0.0-beta.4 is in exactly that position; it is
+  not installed on any site in the fleet.)
+
+  Nothing else about extensions changes: the instance is still a single Pinia
+  per site — this package deliberately excludes `vue`, `vue-router` and `pinia`
+  from Vite's dependency pre-bundling so a linked extension cannot end up with
+  a second copy — and `vue-router` 5.3.1 already accepts `pinia@4`
+  (`^3.0.4 || ^4.0.2`).
+
+  Two consequences worth knowing, neither of which needs action in a site:
+
+  - Pinia 4 makes `@vue/devtools-api` a **required peer** at `^8.1.5`, where
+    Pinia 3 carried it as a dependency. npm installs it automatically; on a
+    consumer site the resolved version moves 7.x → 8.x, which also lets
+    `vue-router`'s own nested copies collapse into the hoisted one. In this
+    repo that made the lockfile *smaller* (318 → 307 entries).
+  - Pinia 4 is ESM-only and depends on `nostics`. That package was already
+    present in this tree, so no new package enters a site's dependency graph.
+
+  No framework source change was needed: this package defines no store of its
+  own and uses none of the APIs Pinia changed.
+
+### Internal (not shipped)
+
+- Dev dependency `vitest` 4.1.11 → 5.0.1 (with `@vitest/coverage-v8`). This
+  restores the repo's ability to regenerate its own `package-lock.json` under
+  npm 10: on `vitest` 4.1.x a fresh `npm install` died in arborist with
+  `Cannot read properties of null (reading 'edgesOut')`, and only the existing
+  lockfile kept the repo installable. Neither package ships.
+
 ## 1.3.1
 
 ### Fixed
