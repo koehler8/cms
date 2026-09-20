@@ -53,8 +53,10 @@ Traps, each of which produced a false alarm:
   on every English page (+34 on getpeepoo.com). `localStorage.clear()` → navigate → measure.
 - **The console buffer survives navigation within a tab.** Errors from the previous site (e.g. Reown 403s) show up under
   the next one. Confirm with `performance.getEntriesByType('resource')` for the current page before believing them.
-- **Sites that register `cms-ext-crypto`** (vor, tkrpkr, moodz) log 403s from `api.web3modal.org` on localhost — Reown
-  rejects the origin. Environmental, identical before and after.
+- ~~**Sites that register `cms-ext-crypto`** (vor, tkrpkr, moodz) log 403s from `api.web3modal.org` on localhost.~~
+  **No longer applies: the extension was sunset and uninstalled fleet-wide on 2026-09-20, so no site bundles
+  wallet code.** Kept because the shape recurs — a third-party SDK that rejects `localhost` logs console errors
+  that are environmental, identical before and after, and must not be read as a regression.
 - A site that fetches content at build time (`site-resom`: YouTube feed → `home.json`) legitimately differs from live in
   text length on that page only; structure must still match.
 - Asset hashes never match between a Mac build and Amplify's Linux build of the same commit. Don't compare them.
