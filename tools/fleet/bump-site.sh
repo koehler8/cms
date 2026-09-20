@@ -90,6 +90,23 @@ html_count() { find "$1" -name '*.html' | wc -l | tr -d ' '; }
 
 # "pinia@4.0.3" -> pinia · "@koehler8/cms-ext-crypto@1.0.0-beta.5" -> the scope+name
 # · "@vue/devtools-api" -> itself. A leading scope @ is not a version separator.
+# Is $1 in vite.config.js's `extensions:` array? Comments are stripped FIRST:
+# site-poopee and site-peepoo carry the line
+#   // Re-add '@koehler8/cms-ext-crypto' to restore the wallet-connect surfaces
+# so a whole-file grep calls both of them registered when neither is. Getting
+# this wrong means the driver edits a COMMENT and claims it unregistered
+# something.
+is_registered() {
+  node -e '
+    const fs = require("fs");
+    const src = fs.readFileSync("vite.config.js", "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
+    const m = src.match(/extensions\s*:\s*\[([^\]]*)\]/);
+    process.exit(m && m[1].includes(process.argv[1]) ? 0 : 1);
+  ' "$1"
+}
+
 spec_name() {
   local spec="$1" rest="${1#@}"
   [[ "$rest" == *@* ]] && echo "${spec%@*}" || echo "$spec"
@@ -207,7 +224,7 @@ phase_bump() {
       || fail "REMOVE_PKG: the site is on @koehler8/cms $(ver @koehler8/cms), not $CMS_TARGET — this mode asserts the framework, it never moves it"
     for p in $removing; do
       [[ "$(ver $p)" != "-" ]] || fail "$p is not installed here — nothing to remove"
-      if grep -q "'$p'" vite.config.js; then
+      if is_registered "$p"; then
         # Uninstalling a REGISTERED extension breaks the build, so the two must
         # happen together. UNREGISTER=1 is the operator saying so; without it
         # this refuses rather than quietly editing a never-touch file.
@@ -222,7 +239,7 @@ phase_bump() {
         # environment, \x27 for the quote character.
         local strip='s{\x27\Q$ENV{P}\E\x27,\s*}{}g; s{,\s*\x27\Q$ENV{P}\E\x27}{}g'
         P="$p" perl -i -pe "$strip" vite.config.js || fail "perl failed editing vite.config.js"
-        grep -q "'$p'" vite.config.js && fail "could not unregister $p from vite.config.js — edit it by hand"
+        is_registered "$p" && fail "could not unregister $p from vite.config.js — edit it by hand"
         # exactly one line changed...
         local vlines=$(diff "$S/$SITE-vite.before" vite.config.js | grep -c '^[<>]')
         [[ "$vlines" == 2 ]] || fail "unregistering $p changed $vlines diff lines in vite.config.js, expected one line replaced"
