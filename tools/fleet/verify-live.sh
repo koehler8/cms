@@ -134,5 +134,15 @@ if [[ -s "$SNAP" ]]; then
     echo "  live entry assets are still the pre-push set — the new build is not being served yet"; exit 3
   fi
   echo "  build changed: $(comm -13 "$SNAP" <(echo "$NOW") | wc -l | tr -d ' ') new entry asset(s) since the pre-push snapshot"
-  rm -f "$SNAP"
+  # RENAMED, not deleted: this check is consumed on first use, and an earlier
+  # version silently dropped it on any later run. Calling this script twice
+  # (an `until` loop that greps its output, then a second call to print it) then
+  # reports SUCCEED with no build-change clause at all -- which reads exactly
+  # like a pass. Keeping the used snapshot lets the second call say so.
+  mv -f "$SNAP" "$SNAP.used"
+elif [[ -s "$SNAP.used" ]]; then
+  echo "  build change: already verified by an earlier run of this script (snapshot consumed)"
+else
+  echo "  build change: NOT CHECKED — no pre-push snapshot (ship-site.sh takes one; a cms release leaves"
+  echo "                every page identical, so without it nothing here can tell the new build from the old)"
 fi
