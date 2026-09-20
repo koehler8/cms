@@ -89,14 +89,14 @@ Edit `themes/<slug>/theme.config.js`. The CMS regenerates `virtual:cms-theme-var
 
 ## Lockfile and npm version — read before bumping any dep
 
-This project pins **Node 20.19 / npm 10.8** to match AWS Amplify exactly. Local installs with a different npm version produce subtly different lockfiles that look fine locally but break CI.
+This project pins **Node 22.23.2 / npm 10.9** to match AWS Amplify exactly (never 24 — it ships npm 11). Local installs with a different npm version produce subtly different lockfiles that look fine locally but break CI.
 
 Two failure modes seen on sister sites:
 1. `Cannot find module '@rolldown/binding-linux-x64-gnu'` — npm 11 regen stripped optional-dep entries Amplify needs.
 2. `npm ci ... Missing: @types/react@..., @noble/hashes@... from lock file` — npm 11 omitted entries npm 10 expects.
 
 Rules:
-- **Always run `nvm use` before `npm install`**. `.nvmrc` pins 20.19.0 (which ships npm 10.8.x).
+- **Always run `nvm use` before `npm install`**. `.nvmrc` pins 22.23.2 (which ships npm 10.9.x).
 - **Prefer targeted bumps**: `npm install <pkg>@<ver> --no-audit --no-fund`. **Never** `rm package-lock.json && npm install` unless you're on the pinned npm version.
 - **The build uses `npm install`**, not `npm ci` (see `amplify.yml`) for drift tolerance.
 

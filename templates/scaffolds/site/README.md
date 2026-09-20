@@ -7,7 +7,7 @@ For architecture, conventions, and a navigation guide for "where things go" (con
 ## Local development
 
 ```bash
-nvm use                    # Node 20.19.0 per .nvmrc
+nvm use                    # Node 22.23.2 per .nvmrc
 cp .env.example .env
 npm install
 npm run dev
