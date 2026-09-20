@@ -2,7 +2,8 @@
 # verify-live.sh — after a push, confirm the site's Amplify deploy and that
 # production is really serving the new build.
 #
-#   tools/fleet/verify-live.sh <site-dir-name> [expected-vue-version]
+#   tools/fleet/verify-live.sh <site-dir-name> [expected-vue-version | snapshot]
+#   NODE_WANT=22.23.2 NPM_WANT='10.9.*' tools/fleet/verify-live.sh <site-dir-name>   (after a Node move)
 #
 # One look, no waiting: prints PENDING / RUNNING and exits 3 if the job for the
 # site's HEAD commit has not finished, so the caller decides when to look again.
@@ -60,6 +61,31 @@ case "$STATUS" in
   *) echo "$SITE: Amplify job $(echo $JOB | awk '{print $1}') is $STATUS for ${SHA:0:7}"; exit 3 ;;
 esac
 
+# NODE_WANT=<version> — prove which Node BUILT the deployed job. A Node-only
+# change can leave every asset byte-identical, so neither the Vue version nor a
+# changed entry-asset set can show it landed; the build log can. nvm prints
+# "Now using node v22.23.2 (npm v10.9.8)" — once for `nvm install`, once for
+# `nvm use`. EVERY such line must name the wanted version: a second, different
+# one would mean something later in the build switched Node back.
+# NPM_WANT is an optional glob for the npm in that line (e.g. '10.9.*').
+NODE_LINE=""
+if [[ -n "${NODE_WANT:-}" ]]; then
+  JID=$(echo $JOB | awk '{print $1}')
+  LOGURL=$(aws amplify get-job --app-id "$APP" --branch-name main --job-id "$JID" --region $REGION \
+    --query "job.steps[?stepName=='BUILD'].logUrl | [0]" --output text 2>/dev/null)
+  BLOG=$(curl -sL --compressed --max-time 30 "$LOGURL" 2>/dev/null)
+  [[ -n "$BLOG" ]] || { echo "$SITE: could not fetch the BUILD log for job $JID — Node version UNKNOWN (not a pass)"; exit 1; }
+  USING=$(echo "$BLOG" | grep -o 'Now using node v[0-9.]* (npm v[0-9.]*)' | sort -u)
+  [[ -n "$USING" ]] || { echo "$SITE: job $JID's build log has no 'Now using node' line — Node version UNKNOWN (not a pass)"; exit 1; }
+  if [[ "$(echo "$USING" | wc -l | tr -d ' ')" != 1 || "$USING" != "Now using node v$NODE_WANT (npm v"* ]]; then
+    echo "$SITE: job $JID did NOT build on Node $NODE_WANT alone — the log says:"; echo "$USING" | sed 's/^/  /'; exit 1
+  fi
+  BUILT_NPM=$(echo "$USING" | grep -o 'npm v[0-9.]*' | sed 's/npm v//')
+  [[ -z "${NPM_WANT:-}" || "$BUILT_NPM" == ${~NPM_WANT} ]] || { echo "$SITE: built on npm $BUILT_NPM, wanted $NPM_WANT"; exit 1; }
+  FAV=$(echo "$BLOG" | grep -ci 'favicon')
+  NODE_LINE="built on node v$NODE_WANT / npm $BUILT_NPM per the build log (favicon lines: $FAV) | "
+fi
+
 URL=$(jq -r '.url // .["site.url"] // empty' site/content/en/site.json 2>/dev/null)
 [[ -n "$URL" ]] || URL="https://$NAME"
 URL="${URL%/}"
@@ -94,7 +120,7 @@ done
 VUES=$(cat "$T"/js/assets/*.js 2>/dev/null | grep -o '3\.[0-9]\.[0-9][0-9]*' | sort | uniq -c | sort -rn | awk '{print $2}' | head -3 | tr '\n' ' ')
 ROBOTS=$(grep -o '<meta name="robots"[^>]*>' "$T/index.html" | head -1)
 
-printf "%s: job %s SUCCEED %s | %s | sitemap %d urls, checked %d, not-200: %d (%d via slash redirect) | vue on live: %s| home robots: %s\n" \
+printf "%s: job %s SUCCEED %s | ${NODE_LINE//\%/%%}%s | sitemap %d urls, checked %d, not-200: %d (%d via slash redirect) | vue on live: %s| home robots: %s\n" \
   "$SITE" "$(echo $JOB | awk '{print $1}')" "${SHA:0:7}" "$URL" "$TOTAL" "${#PICK}" "${#BAD}" "$HOPS" "$VUES" "${ROBOTS:-none}"
 (( ${#BAD} == 0 )) || { printf '  %s\n' $BAD | head -5; exit 1; }
 [[ " $VUES" == *" $WANT_VUE "* ]] || { echo "  expected Vue $WANT_VUE in the live bundle"; exit 1; }

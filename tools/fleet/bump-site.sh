@@ -21,6 +21,10 @@
 #   CMS_ONLY=1     framework-release pass: move cms and assert NOTHING else did
 #   EXACT_TARGETS  "vite@8.3.0 vue@3.5.43" for a site that pins without a caret
 #   IGNORE_PR_BRANCHES / ALLOW_BM_BRANCHES=1   explicit, narrow pre-flight excuses
+#   NODE_PIN / NPM_PIN   the toolchain every phase asserts (default: 20.19.0 / 10.8.*).
+#                  The site's .nvmrc must agree — a site that has moved to another
+#                  Node fails `pre` loudly until the operator names it. Moving a
+#                  site's Node is node-site.sh's job, never this script's.
 
 set -u
 SITE="${1:?usage: bump-site.sh <site-dir-name> [phase]}"
@@ -30,6 +34,8 @@ CMS_REPO="${HERE:h:h}"
 ROOT="${FLEET_ROOT:-${CMS_REPO:h}}"
 S="${FLEET_SCRATCH:-${TMPDIR:-/tmp}/fleet-bump}"
 CMS_TARGET="${CMS_TARGET:-1.3.0}"
+NODE_PIN="${NODE_PIN:-20.19.0}"
+NPM_PIN="${NPM_PIN:-10.8.*}"
 LEDGER="$S/ledger.jsonl"
 mkdir -p "$S"
 cd "$ROOT/$SITE" || { echo "no such site: $ROOT/$SITE"; exit 2; }
@@ -45,7 +51,7 @@ FROZEN=(pinia @unhead/vue vite-ssg @koehler8/cms-ext-compliance @koehler8/cms-ex
         @koehler8/cms-theme-frog @koehler8/cms-theme-swamp ethers @reown/appkit chart.js vue-chartjs)
 
 source ~/.nvm/nvm.sh >/dev/null 2>&1
-nvm use >/dev/null 2>&1
+nvm use "$NODE_PIN" >/dev/null 2>&1
 # a site build must never publish anything (site-bang submits to IndexNow in prod)
 export INDEXNOW_DRY_RUN=1
 
@@ -55,7 +61,8 @@ html_count() { find "$1" -name '*.html' | wc -l | tr -d ' '; }
 
 assert_toolchain() {
   local n=$(node -v) m=$(npm -v)
-  [[ "$n" == "v20.19.0" && "$m" == 10.8.* ]] || fail "node $n / npm $m — need v20.19.0 / 10.8.x (run nvm use)"
+  [[ "$n" == "v$NODE_PIN" && "$m" == ${~NPM_PIN} ]] || fail "node $n / npm $m — need v$NODE_PIN / $NPM_PIN"
+  [[ "$(cat .nvmrc 2>/dev/null)" == "$NODE_PIN" ]] || fail ".nvmrc pins '$(cat .nvmrc 2>/dev/null)' but this run is pinned to $NODE_PIN — set NODE_PIN / NPM_PIN to match the site"
 }
 
 # The `npm run` steps amplify.yml's preBuild performs, in order — so a site's own
@@ -193,7 +200,7 @@ phase_gates() {
   [[ "$(jq '.packages[""] | has("overrides")' package-lock.json)" == "$(git show HEAD:package-lock.json | jq '.packages[""] | has("overrides")')" ]] || fail "an overrides block (dis)appeared in the lockfile root"
   npm ls >/dev/null 2>&1 || fail "npm ls reports an invalid tree"
   local eb=$(npm install --dry-run --no-audit --no-fund 2>&1 | grep -c 'EBADENGINE Unsupported')
-  [[ "$eb" == 0 ]] || fail "$eb package(s) reject Node 20.19 (EBADENGINE)"
+  [[ "$eb" == 0 ]] || fail "$eb package(s) reject Node $NODE_PIN (EBADENGINE)"
   # No result is UNKNOWN, never zero: npm's advisory endpoint does go down.
   AUDIT=$(npm audit --json 2>/dev/null | jq -c '.metadata.vulnerabilities | {critical,high,moderate}' 2>/dev/null)
   [[ -n "$AUDIT" && "$AUDIT" != "null" ]] || AUDIT='"UNKNOWN"'
