@@ -313,19 +313,42 @@ phase_bump() {
 
   # cms, and any CMS_PLUS spec that carries a version, go in ONE install so npm
   # resolves their peers against each other rather than in two steps.
-  local install=() plusNames=()
+  local install=() plusNames=() plusUpdate=()
   [[ "$(ver @koehler8/cms)" != "$CMS_TARGET" ]] && install+=("@koehler8/cms@$CMS_TARGET")
   if [[ -n "${CMS_PLUS:-}" ]]; then
     MODE=plus
     for spec in ${=CMS_PLUS}; do
       local name=$(spec_name "$spec")
       plusNames+=("$name")
-      [[ "$spec" != "$name" ]] && install+=("$spec")
+      if [[ "$spec" == "$name" ]]; then
+        # A BARE name is a TRANSITIVE the site does not declare (pinia,
+        # @vue/devtools-api). It must be `npm update`d, never installed:
+        # `npm install pinia@4.0.3` writes pinia into the SITE's package.json,
+        # which is wrong -- no site declares the store the framework bundles.
+        plusUpdate+=("$name")
+      else
+        # A name@version is a package the site DECLARES, so installing it is
+        # right. Refuse otherwise, or the install silently adds a declaration.
+        [[ "$(jq -r --arg n "$name" '.dependencies[$n] // .devDependencies[$n] // "-"' package.json)" != "-" ]] \
+          || fail "CMS_PLUS: $spec pins a version, but $name is not declared in this site's package.json — pass the bare name so it is updated as a transitive instead of being added as a dependency"
+        install+=("$spec")
+      fi
     done
     NAMES_JSON=$(printf '%s\n' $plusNames | jq -R . | jq -sc .)
   fi
   if (( ${#install} > 0 )); then
     npm install $install --no-audit --no-fund >/dev/null 2>&1 || fail "npm install $install failed"
+  fi
+  # AFTER the cms install, and it is not optional. `npm install @koehler8/cms@X`
+  # is a TARGETED install: it disturbs the tree as little as possible, so when
+  # cms's own pinia range goes ^3 -> ^4 the stale hoisted pinia@3 STAYS and 4.x
+  # is nested under cms. Measured on site-erea: two copies, the app loading one
+  # through cms and anything else resolving the other -- exactly the duplicate
+  # the framework excludes pinia from pre-bundling to prevent. A plain
+  # `npm install` settle does NOT fix it ("up to date"). `npm update <name>`
+  # does, and leaves package.json alone.
+  if (( ${#plusUpdate} > 0 )); then
+    npm update $plusUpdate --no-audit --no-fund >/dev/null 2>&1 || fail "npm update $plusUpdate failed"
   fi
   # CMS_ONLY=1 — a framework-release pass. Nothing but cms may move, and that is
   # ENFORCED, not hoped for: a patch release of anything else landing mid-pass
