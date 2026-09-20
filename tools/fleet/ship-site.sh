@@ -167,6 +167,18 @@ fi
 # before the push, so the post-push verify-live run can prove the build changed
 "$HERE/verify-live.sh" "$SITE" snapshot >/dev/null 2>&1 || echo "$SITE: (no live snapshot — verify-live will rely on the Amplify job alone)"
 
+# the removal gate makes a STRONGER claim than the bump gate's frozen list, and
+# saying "the wallet libs did not move" about a commit that deleted them is a lie
+if [[ "$BUMP_MODE" == remove ]]; then
+  integrity='- check-site-lockfile clean; npm ls valid; zero EBADENGINE; overrides
+  unchanged. Every changed lockfile entry is a removal or a flag-only
+  change: nothing was added and no surviving package moved version.'
+else
+  integrity='- check-site-lockfile clean; npm ls valid; zero EBADENGINE; overrides
+  unchanged; frozen packages (pinia, @unhead/vue, vite-ssg, extensions,
+  themes, wallet + chart libs) did not move.'
+fi
+
 pagesNote=""
 if [[ "$(echo "$L" | jq -r '.pagesDiffer // false')" == true ]]; then
   pagesNote="The built pages DO change here, deliberately: $(echo "$L" | jq -r '.pageDiffReason'). The
@@ -183,9 +195,7 @@ $scope
 $moved
 
 Gated by cms tools/fleet/bump-site.sh before this commit:
-- check-site-lockfile clean; npm ls valid; zero EBADENGINE; overrides
-  unchanged; frozen packages (pinia, @unhead/vue, vite-ssg, extensions,
-  themes, wallet + chart libs) did not move.
+$integrity
 - Amplify rehearsal in a clean copy: \`npm install --prefer-offline\`
   leaves the lockfile byte-identical, \`npm ci\` passes, a linux-x64
   install materialises both native bindings.

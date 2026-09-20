@@ -223,10 +223,14 @@ phase_bump() {
     local tops=$(comm -23 \
       <(jq -r '.packages|keys[]|select(test("^node_modules/(@[^/]+/)?[^/]+$"))' "$S/$SITE-lock-before.json" | sed 's#^node_modules/##' | sort) \
       <(jq -r '.packages|keys[]|select(test("^node_modules/(@[^/]+/)?[^/]+$"))' package-lock.json | sed 's#^node_modules/##' | sort))
+    # ${(@f)...} splits on NEWLINES only -- an unquoted $(...) splits on spaces
+    # and turns each "@solana/* (39)" into two lines
+    local scopes=("${(@f)$(echo "$tops" | grep '^@' | cut -d/ -f1 | sort | uniq -c | sort -rn | awk '{printf "%s/* (%s)\n", $2, $1}')}")
+    local plain=$(echo "$tops" | grep -v '^@' | wc -l | tr -d ' ')
     MOVED_JSON=$(printf '%s\n' "uninstalled ${(j:, :)removing}" \
-      "lockfile $nb -> $na entries ($(echo "$tops" | grep -c .) top-level packages gone)" \
-      $(echo "$tops" | grep '^@' | cut -d/ -f1 | sort | uniq -c | sort -rn | awk '{printf "%s/* (%s)\n", $2, $1}') \
-      | jq -R . | jq -sc .)
+      "lockfile $nb -> $na entries; $(echo "$tops" | grep -c .) top-level packages gone" \
+      "${scopes[@]}" "$plain unscoped packages" \
+      | grep -v '^$' | jq -R . | jq -sc .)
     MOVED="uninstalled ${(j:, :)removing}; lockfile $nb -> $na entries"
     echo "  bump[remove]: $MOVED"
     return 0
