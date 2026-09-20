@@ -1,7 +1,7 @@
 #!/bin/zsh
 # node-site.sh — take ONE consumer site through a Node version move, gated.
 #
-#   tools/fleet/node-site.sh <site-dir-name> [all|pre|baseline|switch|install|rehearse|after|restore]
+#   tools/fleet/node-site.sh <site-dir-name> [all|pre|baseline|switch|install|rehearse|tests|after|restore]
 #
 # The sibling of bump-site.sh for the opposite kind of change: there the
 # dependencies move and Node stands still; here Node moves and NOTHING ELSE MAY.
@@ -20,6 +20,8 @@
 #   NODE_FROM   what the site must be on today          (default: 20.19.0)
 #   NPM_FROM    glob for the old Node's npm             (default: 10.8.*)
 #   FLEET_ROOT / FLEET_SCRATCH / IGNORE_PR_BRANCHES / ALLOW_BM_BRANCHES — as bump-site.sh
+#   SITE_TESTS=skip   do not run the site's own `npm test` (see phase_tests — only
+#                     for a suite that CANNOT pass before the change is committed)
 #
 # NODE_PIN == NODE_FROM is a supported no-op (the proof run for this tooling):
 # nothing is edited, both builds run on the same Node, every gate still runs.
@@ -246,8 +248,26 @@ phase_after() {
   echo "  after: $ha pages identical, theme unchanged ($theme declarations), checks green=$checks, peakRSS ${rss_before}->${RSS_MB}MB, wall ${wall_before}->${WALL}s, hashed assets $assets, $nd file(s) differ in bytes"
   jq -nc --arg site "$SITE" --arg from "$NODE_FROM" --arg to "$NODE_PIN" --arg npm "$(npm -v)" \
      --argjson pages "$ha" --argjson theme "${theme:-0}" --argjson rssBefore "${rss_before:-0}" --argjson rss "${RSS_MB:-0}" \
-     --argjson checks "$checks" --argjson native "${NATIVE:-0}" --arg assets "$assets" --argjson nd "${nd:-0}" --arg at "$(date -u +%FT%TZ)" \
-     '{site:$site,track:"node",result:"READY",nodeFrom:$from,node:$to,npm:$npm,pages:$pages,theme:$theme,peakRssMbBefore:$rssBefore,peakRssMb:$rss,checks:$checks,nativeBinaries:$native,hashedAssets:$assets,filesDifferingInBytes:$nd,at:$at}' >> "$LEDGER"
+     --argjson checks "$checks" --argjson native "${NATIVE:-0}" --arg assets "$assets" --argjson nd "${nd:-0}" --arg tests "${TESTS:-none}" --arg at "$(date -u +%FT%TZ)" \
+     '{site:$site,track:"node",result:"READY",nodeFrom:$from,node:$to,npm:$npm,pages:$pages,theme:$theme,peakRssMbBefore:$rssBefore,peakRssMb:$rss,checks:$checks,nativeBinaries:$native,hashedAssets:$assets,filesDifferingInBytes:$nd,siteTests:$tests,at:$at}' >> "$LEDGER"
+}
+
+# The site's own test suite, run under the NEW Node WITH the two-line change in
+# the tree. Running it on the untouched tree proves only that the suite runs on
+# the new Node: site-bang's went 190/190 that way on 2026-09-19, and then failed
+# in CI, because one of its tests is a tripwire that pins amplify.yml to a
+# baseline commit and fires on ANY edit to it. That is a finding for the
+# operator (the repo documents how a reviewed change advances the baseline) —
+# never something to discover from a red PR. Most sites have no `test` script;
+# for them this is a no-op.
+phase_tests() {
+  TESTS="none"
+  [[ "$(jq -r '.scripts.test // empty' package.json)" == "" ]] && { echo "  tests: no test script"; return 0; }
+  if [[ "${SITE_TESTS:-}" == skip ]]; then TESTS="SKIPPED"; echo "  tests: SKIPPED by SITE_TESTS=skip — run them on the branch before merging"; return 0; fi
+  use_node "$NODE_PIN" "$NPM_PIN"
+  npm test > "$S/$SITE-node-tests.log" 2>&1 || { grep -E '^not ok|^# (pass|fail)|changed since baseline' "$S/$SITE-node-tests.log" | head -8; fail "the site's own npm test is red under Node $NODE_PIN with the change applied (full log: $S/$SITE-node-tests.log)"; }
+  TESTS=$(grep -E '^# pass' "$S/$SITE-node-tests.log" | awk '{print $3}')
+  echo "  tests: npm test green under $NODE_PIN with the change applied (pass=$TESTS)"
 }
 
 phase_restore() {
@@ -261,7 +281,7 @@ if [[ "$PHASE" == all ]]; then
   echo "== $SITE  (Node $NODE_FROM -> $NODE_PIN)"
   SWITCHED=0
   trap '[[ $? -ne 0 && $SWITCHED == 1 ]] && { echo "  -> leaving the site untouched"; phase_restore; jq -nc --arg site "$SITE" --arg at "$(date -u +%FT%TZ)" "{site:\$site,track:\"node\",result:\"FAILED\",at:\$at}" >> "$LEDGER"; }' EXIT
-  run pre; run baseline; SWITCHED=1; run switch; run install; run rehearse; run after
+  run pre; run baseline; SWITCHED=1; run switch; run install; run rehearse; run tests; run after
   SWITCHED=0
   echo "  READY — all gates green; review, then SHIP_MODE=node ship-site.sh"
 else
