@@ -207,7 +207,36 @@ phase_bump() {
       || fail "REMOVE_PKG: the site is on @koehler8/cms $(ver @koehler8/cms), not $CMS_TARGET — this mode asserts the framework, it never moves it"
     for p in $removing; do
       [[ "$(ver $p)" != "-" ]] || fail "$p is not installed here — nothing to remove"
-      grep -q "\"$p\"" vite.config.js && fail "$p is still REGISTERED in vite.config.js — unregister it in the same commit, by hand, before running this"
+      if grep -q "'$p'" vite.config.js; then
+        # Uninstalling a REGISTERED extension breaks the build, so the two must
+        # happen together. UNREGISTER=1 is the operator saying so; without it
+        # this refuses rather than quietly editing a never-touch file.
+        [[ -n "${UNREGISTER:-}" ]] || fail "$p is still REGISTERED in vite.config.js — rerun with UNREGISTER=1 to take it out of the extensions array in the same commit"
+        cp vite.config.js "$S/$SITE-vite.before"
+        # Two perl traps, both of which edit NOTHING while exiting 0:
+        #   s{}{} not s///  -- a scoped name contains a slash, and the default
+        #     delimiter makes perl read the rest as division.
+        #   $ENV{P} not "$p" -- '@koehler8' is an ARRAY interpolation in perl and
+        #     it interpolates even inside \Q...\E, quietly leaving '/cms-ext-crypto'.
+        # So: single-quoted program (the shell touches nothing), name via the
+        # environment, \x27 for the quote character.
+        local strip='s{\x27\Q$ENV{P}\E\x27,\s*}{}g; s{,\s*\x27\Q$ENV{P}\E\x27}{}g'
+        P="$p" perl -i -pe "$strip" vite.config.js || fail "perl failed editing vite.config.js"
+        grep -q "'$p'" vite.config.js && fail "could not unregister $p from vite.config.js — edit it by hand"
+        # exactly one line changed...
+        local vlines=$(diff "$S/$SITE-vite.before" vite.config.js | grep -c '^[<>]')
+        [[ "$vlines" == 2 ]] || fail "unregistering $p changed $vlines diff lines in vite.config.js, expected one line replaced"
+        # ...and ignoring whitespace the new file is the old one with exactly that
+        # entry gone. Computed with a literal replacement rather than a zsh glob:
+        # the glob form silently matched nothing and compared a string to itself.
+        local nb=$(tr -d '[:space:]' < "$S/$SITE-vite.before")
+        local na=$(tr -d '[:space:]' < vite.config.js)
+        local expect=$(printf '%s' "$nb" | P="$p" perl -pe "$strip")
+        [[ "$na" == "$expect" && "$na" != "$nb" ]] \
+          || fail "unregistering $p changed more than that one array entry in vite.config.js"
+        UNREGISTERED=1
+        echo "  unregistered $p from vite.config.js (one line, that entry only)"
+      fi
     done
     npm uninstall $removing --no-audit --no-fund >/dev/null 2>&1 || fail "npm uninstall $REMOVE_PKG failed"
     for p in $removing; do
@@ -363,7 +392,13 @@ phase_bump() {
 phase_gates() {
   local changed=$(git status --short | awk '{print $2}' | sort | tr '\n' ' ')
   # empty = the site was already current (a re-run is a no-op, not an error)
-  [[ -z "$changed" || "$changed" == "package-lock.json package.json " || "$changed" == "package-lock.json " ]] || fail "unexpected files changed: $changed"
+  # plain comparison, not a ${array:#pattern} match -- the clever form silently
+  # failed to match a string it should have, and cost a whole gated run
+  local allowed=("" "package-lock.json package.json " "package-lock.json ")
+  [[ "${UNREGISTERED:-0}" == 1 ]] && allowed+=("package-lock.json package.json vite.config.js ")
+  local okfiles=0 a=
+  for a in "${allowed[@]}"; do [[ "$changed" == "$a" ]] && okfiles=1; done
+  (( okfiles )) || fail "unexpected files changed: [$changed]"
   [[ "$(jq .lockfileVersion package-lock.json)" == 3 ]] || fail "lockfileVersion is not 3"
   node "$CMS_REPO/scripts/check-site-lockfile.mjs" . >/dev/null || { node "$CMS_REPO/scripts/check-site-lockfile.mjs" .; fail "check-site-lockfile"; }
   [[ "$(git show HEAD:package.json | jq -cS .overrides)" == "$(jq -cS .overrides package.json)" ]] || fail "package.json overrides changed"
@@ -425,7 +460,13 @@ phase_after() {
   fi
   thin() { (cd "$1" && find . -name '*.html' -size -4k | sort); }
   diff <(thin "$S/$SITE-dist-before") <(thin "$S/$SITE-dist-after") >/dev/null || fail "the set of near-empty pages changed"
-  [[ -z "$(git status --short -- vite.config.js amplify.yml)" ]] || fail "a never-touch file changed"
+  # vite.config.js is never-touch EXCEPT for the unregister the removal needed,
+  # which was asserted line-by-line at the point it was made
+  if [[ "${UNREGISTERED:-0}" == 1 ]]; then
+    [[ -z "$(git status --short -- amplify.yml)" ]] || fail "a never-touch file changed"
+  else
+    [[ -z "$(git status --short -- vite.config.js amplify.yml)" ]] || fail "a never-touch file changed"
+  fi
   local checks=0
   for c in builder/checks/*.check.mjs(N); do
     node "$c" >/dev/null 2>&1 || { node "$c" | grep -i fail | head -5; fail "acceptance check $c is red"; }
@@ -448,8 +489,8 @@ phase_after() {
 }
 
 phase_restore() {
-  git checkout HEAD -- package.json package-lock.json 2>/dev/null
-  echo "  restored package.json + package-lock.json to HEAD (node_modules is ahead; the next npm ci resyncs it)"
+  git checkout HEAD -- package.json package-lock.json vite.config.js 2>/dev/null
+  echo "  restored package.json + package-lock.json + vite.config.js to HEAD (node_modules is ahead; the next npm ci resyncs it)"
 }
 
 run() { CURRENT="$1"; "phase_$1"; }
