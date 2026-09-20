@@ -76,6 +76,28 @@ describe('usePageConfig — synchronous first render (white-flash fix)', () => {
     wrapper.unmount();
   });
 
+  it('primes under a NON-DEFAULT locale key, not just the base locale', () => {
+    // The gap that let the client-route bug ship. Every existing case here primes
+    // with `undefined` (the base locale), where the cache key is 'default' and
+    // happens to match what a route-blind client computes. On a locale-prefixed
+    // route the SSG stamps the real locale, the client computed 'default', the two
+    // never matched, and the embedded payload was discarded in favour of a
+    // full config re-fetch on the critical path — silently, because nothing here
+    // exercised a non-default key.
+    setConfigLoader({ loadConfigData: loaderSpy, availableLocales: ['en', 'th'], baseLocale: 'en' });
+    primeConfigSync('th', makeConfig(['Hero', 'Footer'], { headline: 'สวัสดี' }));
+
+    const wrapper = mountPage({ locale: 'th' });
+
+    // Synchronous, from the payload — never a blank first render.
+    expect(wrapper.vm.componentKeys.map((c) => c.name)).toEqual(['Hero', 'Footer']);
+    expect(wrapper.vm.pageContent.hero.headline).toBe('สวัสดี');
+    expect(loaderSpy).not.toHaveBeenCalled();
+    expect(peekConfigSync('th')).toBeTruthy();
+
+    wrapper.unmount();
+  });
+
   it('falls back to the async loader (empty first render) on a cache miss', async () => {
     loaderSpy.mockResolvedValue(makeConfig(['Hero']));
 

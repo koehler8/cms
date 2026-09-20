@@ -8,6 +8,7 @@ import { routes, resolveHistory, applyRouterGuards } from './router/index.js';
 import { shouldEnableAnalytics, scheduleAnalyticsLoad, configureAnalyticsConsentMode } from './utils/cookieConsent.js';
 import { loadConfigData, primeConfigSync, trimConfigToPage, resolvePageIdForRoute } from './utils/loadConfig.js';
 import { applyInitialStateTrims } from './utils/initialStateTrim.js';
+import { currentRouteHref } from './utils/currentRoute.js';
 import { persistAttributionFromLocation } from './utils/trackingContext.js';
 import { applyThemeVariables } from './themes/themeManager.js';
 import { setActiveThemeKey } from './utils/themeColors.js';
@@ -136,19 +137,22 @@ export function createCmsApp() {
       };
 
       const extractCurrentRoute = () => {
-        // During SSG, vite-ssg passes the route being pre-rendered as a string
-        // on `ctx.routePath` and only pushes the router AFTER this setup fn runs
-        // — so `router.currentRoute` is still vue-router's START_LOCATION ('/')
-        // here, identically on every page. Resolve `routePath` through the router
-        // (a pure match, no navigation) to recover the real path + `params.locale`.
-        // Without this, `resolveCurrentPageId` sees '/' for every route, so the
-        // payload trim targets the wrong page — or, when '/' is ambiguous, none.
-        const routePath = ctx?.routePath;
-        if (typeof routePath === 'string' && routePath) {
+        // vite-ssg runs this setup fn BEFORE `app.use(router)`, so
+        // `router.currentRoute` is still vue-router's START_LOCATION ('/') here,
+        // identically on every page — during SSG *and* on the client. The href
+        // that IS authoritative differs per half (ctx.routePath vs the window's
+        // own location); currentRouteHref picks it, with the full account of why
+        // the client half is not optional. Resolve it through the router — a pure
+        // match, no navigation — to recover the real path + `params.locale`.
+        const href = currentRouteHref(
+          ctx,
+          typeof window !== 'undefined' ? window.location : null,
+        );
+        if (href) {
           try {
-            return router.resolve(routePath);
+            return router.resolve(href);
           } catch {
-            return { path: routePath, params: {} };
+            return { path: href, params: {} };
           }
         }
         if (ctx?.route) {
