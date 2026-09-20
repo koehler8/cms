@@ -23,6 +23,19 @@
 #                  DOWNGRADED a site and still reached READY. A target below the
 #                  locked version is refused for the same reason.
 #   CMS_ONLY=1     framework-release pass: move cms and assert NOTHING else did
+#   NAMED_ONLY     "ethers viem ws" — move these transitive packages BY NAME and
+#                  nothing else. CMS_TARGET is still required, but here it is an
+#                  assertion (the framework must already be on it), never an
+#                  install: a commit that says "ethers 6.16 -> 6.17" must not
+#                  also carry a cms bump it never mentioned. Every lockfile entry
+#                  that changes must be one of the names or a dependency of one.
+#   CMS_PLUS       "pinia @vue/devtools-api @koehler8/cms-ext-crypto@1.0.0-beta.5"
+#                  — a framework release that legitimately brings a bundled
+#                  runtime dependency with it (cms 1.4.0 carries pinia 4), where
+#                  CMS_ONLY's "exactly two entries moved" is the wrong invariant.
+#                  A name given as name@version is INSTALLED at that version in
+#                  the same npm install as cms, so peers resolve together; a bare
+#                  name is allow-listed only.
 #   EXACT_TARGETS  "vite@8.3.0 vue@3.5.43" for a site that pins without a caret
 #   IGNORE_PR_BRANCHES / ALLOW_BM_BRANCHES=1   explicit, narrow pre-flight excuses
 #   NODE_PIN / NPM_PIN   the toolchain every phase asserts (default: 22.23.2 / 10.9.* —
@@ -63,6 +76,32 @@ export INDEXNOW_DRY_RUN=1
 fail() { echo "GATE FAILED [$SITE/$CURRENT]: $*"; exit 1; }
 ver()  { jq -r --arg k "node_modules/$1" '.packages[$k].version // "-"' "${2:-package-lock.json}"; }
 html_count() { find "$1" -name '*.html' | wc -l | tr -d ' '; }
+
+# "pinia@4.0.3" -> pinia · "@koehler8/cms-ext-crypto@1.0.0-beta.5" -> the scope+name
+# · "@vue/devtools-api" -> itself. A leading scope @ is not a version separator.
+spec_name() {
+  local spec="$1" rest="${1#@}"
+  [[ "$rest" == *@* ]] && echo "${spec%@*}" || echo "$spec"
+}
+
+# The gate NAMED_ONLY and CMS_PLUS share. Every lockfile entry that changed must
+# be one of the named packages or reachable from one through the lockfile's own
+# dependency graph; peers are not edges, so naming cms cannot license a vue move.
+# Sets MOVED (one line per changed entry, for the operator and for ship-site.sh).
+drift_gate() {
+  local out rc
+  out=$(node "$CMS_REPO/tools/fleet/check-lockfile-drift.mjs" \
+          "$S/$SITE-lock-before.json" package-lock.json "$@" 2>&1 >"$S/$SITE-moved.txt")
+  rc=$?
+  if [[ $rc != 0 ]]; then
+    echo "$out" | sed 's/^/  /'
+    fail "lockfile drift is not confined to the named packages (see above)"
+  fi
+  [[ -n "$out" ]] && echo "$out" | sed 's/^/  /'
+  MOVED=$(awk 'NR>1{printf ", "}{printf "%s", $0}' "$S/$SITE-moved.txt")
+  MOVED_JSON=$(jq -R -s -c 'split("\n") | map(select(length > 0))' "$S/$SITE-moved.txt")
+  [[ -n "$MOVED" ]] || MOVED="nothing (already current)"
+}
 
 require_target() {
   [[ -n "$CMS_TARGET" ]] || fail "CMS_TARGET is required (the site is on @koehler8/cms $(ver @koehler8/cms)) — which release the fleet moves to is a decision, never a default"
@@ -143,8 +182,54 @@ phase_bump() {
   assert_toolchain
   require_target
   cp package-lock.json "$S/$SITE-lock-before.json"
-  if [[ "$(ver @koehler8/cms)" != "$CMS_TARGET" ]]; then
-    npm install "@koehler8/cms@$CMS_TARGET" --no-audit --no-fund >/dev/null 2>&1 || fail "npm install @koehler8/cms@$CMS_TARGET failed"
+  MODE=deps
+  MOVED_JSON='[]'
+  NAMES_JSON='[]'
+
+  # NAMED_ONLY — move transitive packages by name and nothing else. The
+  # framework is ASSERTED here, never installed: this mode exists for a
+  # lockfile-only advisory clear (ethers 6.16.0 pins ws 8.17.1 exactly; 6.17.0
+  # pins 8.21.0), and a cms bump riding along would make the commit a lie.
+  if [[ -n "${NAMED_ONLY:-}" ]]; then
+    MODE=named
+    local named=(${=NAMED_ONLY})
+    NAMES_JSON=$(printf '%s\n' $named | jq -R . | jq -sc .)
+    [[ "$(ver @koehler8/cms)" == "$CMS_TARGET" ]] \
+      || fail "NAMED_ONLY: the site is on @koehler8/cms $(ver @koehler8/cms), not $CMS_TARGET — this mode asserts the framework, it never moves it"
+    npm update $named --no-audit --no-fund >/dev/null 2>&1 || fail "npm update $NAMED_ONLY failed"
+    git diff --quiet -- package.json || fail "NAMED_ONLY changed package.json — these are transitive packages, nothing declared should move"
+    # Everything the operator did not name stays frozen — including the wallet
+    # libraries that sit directly above the named packages. @reown/appkit
+    # depends on viem; viem does not depend on @reown/appkit, so the drift gate
+    # would already refuse it, and this says so by name.
+    for p in $FROZEN; do
+      [[ " $NAMED_ONLY " == *" $p "* ]] && continue
+      local a=$(ver $p "$S/$SITE-lock-before.json") b=$(ver $p)
+      [[ "$a" == "$b" ]] || fail "$p moved $a -> $b (must not move — it is not one of: $NAMED_ONLY)"
+    done
+    local flags=()
+    for n in $named; do flags+=(--allow "$n"); done
+    drift_gate $flags
+    echo "  bump[named-only]: $MOVED"
+    echo "    now: $(for n in $named; do printf '%s %s  ' $n $(ver $n); done)"
+    return 0
+  fi
+
+  # cms, and any CMS_PLUS spec that carries a version, go in ONE install so npm
+  # resolves their peers against each other rather than in two steps.
+  local install=() plusNames=()
+  [[ "$(ver @koehler8/cms)" != "$CMS_TARGET" ]] && install+=("@koehler8/cms@$CMS_TARGET")
+  if [[ -n "${CMS_PLUS:-}" ]]; then
+    MODE=plus
+    for spec in ${=CMS_PLUS}; do
+      local name=$(spec_name "$spec")
+      plusNames+=("$name")
+      [[ "$spec" != "$name" ]] && install+=("$spec")
+    done
+    NAMES_JSON=$(printf '%s\n' $plusNames | jq -R . | jq -sc .)
+  fi
+  if (( ${#install} > 0 )); then
+    npm install $install --no-audit --no-fund >/dev/null 2>&1 || fail "npm install $install failed"
   fi
   # CMS_ONLY=1 — a framework-release pass. Nothing but cms may move, and that is
   # ENFORCED, not hoped for: a patch release of anything else landing mid-pass
@@ -153,6 +238,7 @@ phase_bump() {
   # `git diff vA vB -- package.json` in this repo first); then a site's lockfile
   # changes in exactly two entries — the root (its declared range) and cms.
   if [[ -n "${CMS_ONLY:-}" ]]; then
+    MODE=cms
     assert_toolchain
     [[ "$(ver @koehler8/cms)" == "$CMS_TARGET" ]] || fail "@koehler8/cms is $(ver @koehler8/cms), expected $CMS_TARGET"
     local drift=$(jq -rn --slurpfile a "$S/$SITE-lock-before.json" --slurpfile b package-lock.json '
@@ -166,6 +252,27 @@ phase_bump() {
     MOVED="@koehler8/cms $a->$(ver @koehler8/cms) (the only lockfile entry that moved)"
     [[ "$a" == "$CMS_TARGET" ]] && MOVED="nothing (already on $CMS_TARGET)"
     echo "  bump: $MOVED"
+    MOVED_JSON=$(jq -nc --arg m "$MOVED" '[$m]')
+    return 0
+  fi
+  # CMS_PLUS — the framework release that brings a bundled runtime dependency
+  # with it. Still enforced, just with the right invariant: cms, the names the
+  # operator listed, and whatever THOSE depend on. pinia must stay a single
+  # instance (cms hands one pinia to every extension), and the peers that force
+  # this track's release order are checked rather than assumed.
+  if [[ -n "${CMS_PLUS:-}" ]]; then
+    assert_toolchain
+    [[ "$(ver @koehler8/cms)" == "$CMS_TARGET" ]] || fail "@koehler8/cms is $(ver @koehler8/cms), expected $CMS_TARGET"
+    for spec in ${=CMS_PLUS}; do
+      local name=$(spec_name "$spec")
+      [[ "$spec" == "$name" ]] && continue
+      [[ "$(ver $name)" == "${spec##*@}" ]] || fail "$name is $(ver $name), expected exactly ${spec##*@}"
+    done
+    local flags=(--allow @koehler8/cms)
+    for n in $plusNames; do flags+=(--allow "$n"); done
+    flags+=(--single pinia --peer vue-router:pinia --peer @koehler8/cms-ext-crypto:pinia)
+    drift_gate $flags
+    echo "  bump[cms+]: $MOVED"
     return 0
   fi
   # A site that pins a direct dep EXACTLY (no caret — site-buildmill does, for
@@ -269,7 +376,8 @@ phase_after() {
   jq -nc --arg site "$SITE" --arg cms "$(ver @koehler8/cms)" --arg vite "$(ver vite)" --arg vue "$(ver vue)" \
      --argjson pages "$ha" --argjson theme "${theme:-0}" --argjson rss "${RSS_MB:-0}" --argjson checks "$checks" \
      --argjson audit "${AUDIT:-\"UNKNOWN\"}" --arg at "$(date -u +%FT%TZ)" \
-     '{site:$site,result:"READY",cms:$cms,vite:$vite,vue:$vue,pages:$pages,theme:$theme,peakRssMb:$rss,checks:$checks,audit:$audit,at:$at}' >> "$LEDGER"
+     --arg mode "${MODE:-deps}" --argjson moved "${MOVED_JSON:-[]}" --argjson names "${NAMES_JSON:-[]}" \
+     '{site:$site,result:"READY",mode:$mode,names:$names,moved:$moved,cms:$cms,vite:$vite,vue:$vue,pages:$pages,theme:$theme,peakRssMb:$rss,checks:$checks,audit:$audit,at:$at}' >> "$LEDGER"
 }
 
 phase_restore() {

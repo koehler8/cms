@@ -17,6 +17,12 @@
 # The commit message is generated from the ledger and the before/after lockfile,
 # so every site's commit carries its own measured numbers.
 #
+# The subject and the "what moved" list come from the driver's own ledger entry
+# whenever it has one (`moved`, recorded by the NAMED_ONLY and CMS_PLUS gates).
+# The older fallback computes them over a fixed package list, which cannot see a
+# package those modes exist to move — `ethers` is not on it, so a NAMED_ONLY
+# commit would have shipped with an empty body.
+#
 # SHIP_MODE=node ships a site that node-site.sh marked READY instead: the allow-
 # list becomes exactly `.nvmrc amplify.yml`, the ledger verdict must come from the
 # node track (a dependency pass's READY never ships a Node move, or the reverse),
@@ -104,11 +110,36 @@ fi
 
 B="$S/$SITE-lock-before.json"
 v() { jq -r --arg k "node_modules/$1" '.packages[$k].version // "-"' "${2:-package-lock.json}"; }
-moved=$(for p in @koehler8/cms vite rolldown vue vue-router @vitejs/plugin-vue fast-uri nanoid postcss sharp undici axios ws form-data; do
-  a=$(v $p "$B"); b=$(v $p); [[ "$a" != "$b" && "$b" != "-" ]] && printf "  %s %s -> %s\n" "$p" "$a" "$b"; done)
+BUMP_MODE=$(echo "$L" | jq -r '.mode // "deps"')
+names=($(echo "$L" | jq -r '.names // [] | .[]'))
+
+if [[ "$(echo "$L" | jq -r '.moved // [] | length')" != 0 ]]; then
+  # the gate's own list: every lockfile entry it saw change, named package or
+  # dependency of one
+  moved=$(echo "$L" | jq -r '.moved[] | "  " + .')
+else
+  moved=$(for p in @koehler8/cms vite rolldown vue vue-router @vitejs/plugin-vue fast-uri nanoid postcss sharp undici axios ws form-data; do
+    a=$(v $p "$B"); b=$(v $p); [[ "$a" != "$b" && "$b" != "-" ]] && printf "  %s %s -> %s\n" "$p" "$a" "$b"; done)
+fi
 only_cms=$([[ "$(echo "$moved" | grep -c .)" == 1 && "$moved" == *"@koehler8/cms"* ]] && echo yes || echo no)
 
+# what the OPERATOR named that actually moved — the subject speaks about those,
+# not about the transitive packages they dragged
+headline=$(for n in $names; do
+  a=$(v $n "$B"); b=$(v $n); [[ "$a" != "$b" && "$b" != "-" ]] && printf "%s %s -> %s, " "$n" "$a" "$b"; done)
+headline="${headline%, }"
+headlineCount=0
+[[ -n "$headline" ]] && headlineCount=$(( $(echo "$headline" | tr -cd ',' | wc -c | tr -d ' ') + 1 ))
+other=$(( $(echo "$moved" | grep -c .) - headlineCount ))
+
 if [[ -n "${SUBJECT:-}" ]]; then subject="$SUBJECT"
+elif [[ "$BUMP_MODE" == named ]]; then
+  if [[ -z "$headline" ]]; then subject="chore(deps): refresh ${(j:, :)names} in range"
+  else subject="chore(deps): $headline"; fi
+  (( other > 0 )) && subject="$subject (+$other transitive)"
+elif [[ "$BUMP_MODE" == plus ]]; then
+  subject="chore(deps): @koehler8/cms $(v @koehler8/cms "$B") -> $(v @koehler8/cms)"
+  [[ -n "$headline" ]] && subject="$subject + $headline"
 elif [[ "$only_cms" == yes ]]; then subject="chore(deps): @koehler8/cms $(v @koehler8/cms "$B") -> $(v @koehler8/cms)"
 elif [[ "$(v @koehler8/cms "$B")" == "$(v @koehler8/cms)" ]]; then subject="chore(deps): in-range refresh (vite $(v vite), vue $(v vue))"
 else subject="chore(deps): bump @koehler8/cms to $(v @koehler8/cms) + in-range refresh"; fi
@@ -118,6 +149,11 @@ checks=$(echo "$L" | jq -r .checks); audit=$(echo "$L" | jq -c .audit)
 toolchain="Node stays $(cat .nvmrc 2>/dev/null)"
 scope="Dependency versions only; $toolchain. No visible change."
 [[ "$only_cms" == yes ]] && scope="Framework release only: exactly one lockfile entry moved (asserted by the driver's CMS_ONLY gate). $toolchain."
+if [[ "$BUMP_MODE" == named ]]; then
+  scope="Transitive packages only, by name: ${(j:, :)names}. Every lockfile entry that changed is one of those or a dependency of one, and package.json is untouched (asserted by the driver's NAMED_ONLY gate); @koehler8/cms stays $(v @koehler8/cms). $toolchain. No visible change."
+elif [[ "$BUMP_MODE" == plus ]]; then
+  scope="Framework release plus the companions it brings with it: ${(j:, :)names}. Every lockfile entry that changed is cms, one of those, or a dependency of one; exactly one copy of pinia in the tree and every declared pinia peer satisfied (asserted by the driver's CMS_PLUS gate). $toolchain."
+fi
 
 # before the push, so the post-push verify-live run can prove the build changed
 "$HERE/verify-live.sh" "$SITE" snapshot >/dev/null 2>&1 || echo "$SITE: (no live snapshot — verify-live will rely on the Amplify job alone)"
