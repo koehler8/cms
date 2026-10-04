@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.4.2
+
+### Fixed
+
+- **`manifest.json` no longer names an icon that 404s.** Its primary icon has
+  always been `/favicon-256.png`, but `cms-generate-public-assets` never left
+  that file behind: on the letter-glyph path it wrote it only as a temporary
+  input to the `.ico` and deleted it, and when a site ships its own
+  `site/favicon.ico` it returned before writing it at all. Every site in the
+  fleet served a manifest whose 256px icon 404'd (found on site-chrismaus,
+  which worked around it with `manifest.icons` overrides).
+
+  `cms-generate-public-assets` now always tries to publish
+  `public/favicon-256.png`:
+
+  - **Letter-glyph favicon** — the 256px glyph it already renders is kept.
+  - **Site-provided `favicon.ico`** — its 256px frame, extracted as-is (PNG
+    frames) or decoded (32-bit BMP frames, which canvas can't read). Failing
+    that, a **square** `site/assets/img/logo.png` scaled to 256px. A
+    non-square logo is never squashed into the icon, and a smaller favicon
+    frame is never upscaled.
+  - **Neither available** — no icon is written (a stale copy is removed) and
+    the script says how to fix it.
+
+  And the plugin now lists a default icon in `manifest.json` only if the file
+  is actually in `public/` when the build starts, so the manifest can't drift
+  from what ships. Author-supplied `site.manifest.icons` are untouched.
+
+  **No action needed in a site** beyond picking up this release. Across the
+  fleet, sites without their own `favicon.ico` get the letter glyph; most of
+  the rest have a 256px favicon frame or a square logo. Sites whose favicon
+  stops at 64px *and* whose logo is a wordmark (e.g. site-buildmill,
+  site-trifi) now list `favicon.ico` alone — correct, but a 256px frame in
+  `site/favicon.ico` would give them a sharp home-screen icon. Sites that
+  added `manifest.icons` overrides to work around this (site-chrismaus) can
+  keep them or drop them.
+
 ## 1.4.1
 
 ### Fixed
