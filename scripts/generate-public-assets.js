@@ -1,5 +1,5 @@
 // scripts/generate-public-assets.js (run at build time)
-// Syncs favicon.ico, logo.png, and og-image.jpg for the site.
+// Syncs favicon.ico, favicon-256.png, logo.png, and og-image.jpg for the site.
 //
 // Reads from CMS_SITE_DIR env var (e.g. /path/to/my-site/site/).
 // Assets are read from {CMS_SITE_DIR}/assets/, config from
@@ -9,6 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { extractIcoFrame } from './lib/ico.mjs';
 
 // dotenv is optional — without it, config comes from the process environment.
 try {
@@ -22,10 +23,11 @@ try {
 // command still installs cleanly. This command DOES need them — fail loudly
 // with the fix instead of a bare module-not-found stack.
 let createCanvas;
+let loadImage;
 let registerFont;
 let pngToIco;
 try {
-  ({ createCanvas, registerFont } = await import('canvas'));
+  ({ createCanvas, loadImage, registerFont } = await import('canvas'));
   ({ default: pngToIco } = await import('png-to-ico'));
 } catch (err) {
   console.error('❌ cms-generate-public-assets requires the optional dependencies `canvas` and `png-to-ico`.');
@@ -52,6 +54,10 @@ if (!CMS_SITE_DIR || !fs.existsSync(CMS_SITE_DIR)) {
 }
 
 const PUBLIC_DIR = path.join(path.dirname(CMS_SITE_DIR), 'public');
+
+// Must match the primary icon in src/utils/webAppManifest.js.
+const MANIFEST_ICON_SIZE = 256;
+const MANIFEST_ICON_FILE = `favicon-${MANIFEST_ICON_SIZE}.png`;
 
 function resolveSiteAssetFile(relativePaths = []) {
   for (const rel of relativePaths) {
@@ -339,6 +345,57 @@ function loadSiteTitle() {
   return '';
 }
 
+// The Web App Manifest names /favicon-256.png as its primary icon
+// (src/utils/webAppManifest.js). When the site ships its own favicon, build
+// that file from the site's own art: the favicon's 256px frame first (the
+// designed icon, no resampling), else a square logo scaled to fit. A
+// wordmark is never squashed into a square and a small favicon is never
+// upscaled. With neither, any stale copy is removed — the plugin lists only
+// icons that exist in public/, so the manifest falls back to favicon.ico.
+async function writeManifestIconFromSiteArt({ icoBuffer, logoSource, iconPath }) {
+  const frame = extractIcoFrame(icoBuffer, MANIFEST_ICON_SIZE);
+  if (frame?.format === 'png') {
+    fs.writeFileSync(iconPath, frame.data);
+    console.log(`✅ Wrote ${iconPath} from the favicon's ${MANIFEST_ICON_SIZE}px frame`);
+    return;
+  }
+  if (frame?.format === 'rgba') {
+    const canvas = createCanvas(frame.width, frame.height);
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(frame.width, frame.height);
+    imageData.data.set(frame.rgba);
+    ctx.putImageData(imageData, 0, 0);
+    fs.writeFileSync(iconPath, canvas.toBuffer('image/png'));
+    console.log(`✅ Wrote ${iconPath} from the favicon's ${MANIFEST_ICON_SIZE}px frame`);
+    return;
+  }
+
+  if (logoSource) {
+    try {
+      const logo = await loadImage(logoSource);
+      if (logo.width === logo.height) {
+        const canvas = createCanvas(MANIFEST_ICON_SIZE, MANIFEST_ICON_SIZE);
+        const ctx = canvas.getContext('2d');
+        ctx.quality = 'best';
+        ctx.drawImage(logo, 0, 0, MANIFEST_ICON_SIZE, MANIFEST_ICON_SIZE);
+        fs.writeFileSync(iconPath, canvas.toBuffer('image/png'));
+        console.log(`✅ Wrote ${iconPath} from the ${logo.width}px square logo`);
+        return;
+      }
+      console.log(`   Logo is ${logo.width}x${logo.height}, not square — not used as the manifest icon`);
+    } catch (err) {
+      console.warn(`⚠️  Could not read logo ${logoSource} for the manifest icon`, err);
+    }
+  }
+
+  fs.rmSync(iconPath, { force: true });
+  console.warn(
+    `⚠️  No ${MANIFEST_ICON_SIZE}px manifest icon: favicon.ico has no ${MANIFEST_ICON_SIZE}px frame and there is no square logo.`
+    + ` manifest.json will list favicon.ico only. Add a ${MANIFEST_ICON_SIZE}px frame to site/favicon.ico`
+    + ' or a square site/assets/img/logo.png to give installs a sharp icon.',
+  );
+}
+
 async function generateFavicon() {
   const siteTitle = loadSiteTitle() || 'X';
   const letter = siteTitle.charAt(0).toUpperCase();
@@ -409,34 +466,31 @@ async function generateFavicon() {
     }
   }
 
+  const iconPath = path.join(publicDir, MANIFEST_ICON_FILE);
+
   const providedFavicon = resolveSiteAssetFile(['favicon.ico']);
   if (providedFavicon) {
     fs.copyFileSync(providedFavicon, icoPath);
     console.log(`✅ Found existing favicon; copied from ${providedFavicon}`);
+    await writeManifestIconFromSiteArt({ icoBuffer: fs.readFileSync(providedFavicon), logoSource, iconPath });
     return;
   }
 
   console.log(`Generating favicon.ico using letter "${letter}" from site "${siteTitle}"`);
 
-  const sizes = [256, 128, 64, 48, 32, 16];
+  const sizes = [MANIFEST_ICON_SIZE, 128, 64, 48, 32, 16];
   const pngBuffers = sizes.map((s) => renderLetterPng(letter, s, { bg, fg }));
 
-  const pngPath = path.join(publicDir, 'favicon-256.png');
-  fs.writeFileSync(pngPath, pngBuffers[0]);
+  // The 256px glyph doubles as the manifest's primary icon, so it stays.
+  fs.writeFileSync(iconPath, pngBuffers[0]);
 
   const ico = await pngToIco(pngBuffers);
   fs.writeFileSync(icoPath, ico);
 
-  try {
-    fs.unlinkSync(pngPath);
-    console.log(`🗑️  Removed temporary file ${pngPath}`);
-  } catch (err) {
-    console.warn(`⚠️  Could not remove temporary PNG: ${pngPath}`, err);
-  }
-
   console.log(`✅ Created favicon.ico using letter "${letter}" from site "${siteTitle}"`);
   console.log(`   Colors bg=${bg} fg=${fg}`);
   console.log(`   Wrote: ${icoPath}`);
+  console.log(`   Wrote: ${iconPath}`);
 }
 
 generateFavicon().catch((err) => {

@@ -18,7 +18,11 @@
  *   "manifest.icons[0].type": "image/png"
  *
  * Defaults are derived from existing site config and the icons that
- * cms-generate-public-assets writes (favicon-256.png + favicon.ico).
+ * cms-generate-public-assets writes (favicon-256.png + favicon.ico). Pass
+ * `iconExists` to drop default icons whose file isn't there: the script
+ * can't always produce favicon-256.png (a site-provided favicon with no
+ * 256px frame and no square logo), and a listed icon that 404s is worse
+ * than an unlisted one. Author-supplied `manifest.icons` are never filtered.
  */
 
 const DEFAULT_DISPLAY = 'standalone';
@@ -45,7 +49,7 @@ function defaultIcons() {
   ];
 }
 
-export function buildWebAppManifest(siteConfig) {
+export function buildWebAppManifest(siteConfig, { iconExists } = {}) {
   const site = (siteConfig && siteConfig.site) || {};
   const m = (site.manifest && typeof site.manifest === 'object') ? site.manifest : {};
 
@@ -66,7 +70,9 @@ export function buildWebAppManifest(siteConfig) {
         .filter((icon) => icon && typeof icon === 'object' && typeof icon.src === 'string')
         .map((icon) => ({ ...icon }))
     : null;
-  const icons = customIcons && customIcons.length ? customIcons : defaultIcons();
+  const icons = customIcons && customIcons.length
+    ? customIcons
+    : defaultIcons().filter((icon) => typeof iconExists !== 'function' || iconExists(icon.src));
 
   const manifest = {
     name,

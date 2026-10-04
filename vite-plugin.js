@@ -584,7 +584,11 @@ export default function cmsPlugin(options = {}) {
     // Web App Manifest. The template emits <link rel="manifest"> on every
     // page; browsers use this to enable Add-to-Home-Screen + control
     // splash colors when the site is launched from a homescreen icon.
-    const manifest = buildWebAppManifest(siteConfig);
+    // Default icons are listed only if generate-public-assets (which runs
+    // before the build) actually put them in public/.
+    const manifest = buildWebAppManifest(siteConfig, {
+      iconExists: (src) => fs.existsSync(path.join(sitePublicDir, src.replace(/^\/+/, ''))),
+    });
     writeFileIfChanged(
       path.join(sitePublicDir, 'manifest.json'),
       JSON.stringify(manifest, null, 2) + '\n',

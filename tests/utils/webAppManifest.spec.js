@@ -102,6 +102,33 @@ describe('buildWebAppManifest', () => {
     expect(m.icons[0].src).toBe('/favicon-256.png');
   });
 
+  // generate-public-assets can't always write favicon-256.png (a site's own
+  // favicon with no 256px frame and no square logo), so the plugin passes
+  // iconExists and the manifest must not name a file that would 404.
+  it('drops default icons that iconExists reports missing', () => {
+    const present = new Set(['/favicon.ico']);
+    const m = buildWebAppManifest({ site: { title: 'X' } }, { iconExists: (src) => present.has(src) });
+    expect(m.icons.map((i) => i.src)).toEqual(['/favicon.ico']);
+  });
+
+  it('keeps every default icon that iconExists confirms', () => {
+    const m = buildWebAppManifest({ site: { title: 'X' } }, { iconExists: () => true });
+    expect(m.icons.map((i) => i.src)).toEqual(['/favicon-256.png', '/favicon.ico']);
+  });
+
+  it('emits an empty icon list rather than missing files', () => {
+    const m = buildWebAppManifest({ site: { title: 'X' } }, { iconExists: () => false });
+    expect(m.icons).toEqual([]);
+  });
+
+  it('never filters author-supplied manifest.icons', () => {
+    const m = buildWebAppManifest(
+      { site: { title: 'X', manifest: { icons: [{ src: '/logo.png', sizes: '512x512' }] } } },
+      { iconExists: () => false },
+    );
+    expect(m.icons.map((i) => i.src)).toEqual(['/logo.png']);
+  });
+
   it('emits description when set on site or manifest', () => {
     const a = buildWebAppManifest({ site: { title: 'X', description: 'Hi' } });
     expect(a.description).toBe('Hi');
