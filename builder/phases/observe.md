@@ -46,10 +46,10 @@ Known-benign — never file:
   own schedule; an old pin is by design, never a finding.
 - **The lru-cache postinstall patch mutating `node_modules/**/lru-cache`** — load-bearing Node-20
   compat, by design.
-- **No `npm outdated` / dependency proposals** — deps are Chris's supervised call
-  (`product.md` Dependency posture); do not file dependency findings as observer defects.
+- **Dependency findings** — an outdated package, an `npm outdated` line or a bump proposal is
+  not an observer defect; never file one.
 
-Boundaries — defects only, proposals are the product agent's lane. Don't re-file what is already
+Boundaries — defects only; proposals and feature ideas are not findings. Don't re-file what is already
 visible on the repo's Actions tab if a release just happened and Chris is watching it. Severity
 asymmetry: broken publish or red main = high; a stale CHANGELOG line or a doc drift = low —
 investigate hard, file conservatively. Zero findings on a healthy day is the expected outcome.

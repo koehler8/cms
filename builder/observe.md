@@ -46,7 +46,7 @@ executables on this host are exactly the release levers — the publish trigger,
 ## Boundaries
 
 - Defects in the framework only: a broken release, a red main, a beta that breaks consumers, or
-  release-hygiene drift. Feature and refactor ideas are the product agent's lane.
+  release-hygiene drift. Feature and refactor ideas are not findings.
 - Prerelease `beta.N` under the `beta` dist-tag and consumer sites on older pins are BY DESIGN —
   never findings.
 - Severity asymmetry: broken publish / red main = high; a stale CHANGELOG line = low.
