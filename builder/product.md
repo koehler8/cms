@@ -19,12 +19,14 @@ The repo is the framework core (Vite plugin, bundled components, composables, ut
 `base` theme) plus a Vitest suite (`tests/` mirrors `src/`). Node 22.23.2 / npm 10.9, pinned to
 AWS Amplify parity for every consumer.
 
-**Merge is not release, and release is not deploy.** Publishing `@koehler8/cms` is a *manual*
-step — bump `package.json` + `CHANGELOG.md`, `git tag v<version>`, push the tag → the
-`publish.yml` workflow runs `npm publish` (prereleases go to the `beta` dist-tag). A merged PR
-does **not** cut a release, and consumer sites pick up a new beta only on their own
-`npm install` + push. Two human-gated buffers sit between any merged change here and a live
-site. Grooming and the pipeline open PRs; they never tag or publish.
+**Merge is release; release is not deploy.** A PR that changes what ships to npm carries a
+change note, `.changes/<slug>.md` (`bump: patch|minor`, a `section`, the changelog text —
+format in `.changes/README.md`). On the push to `main`, `publish.yml` turns the pending notes
+into the next version and a `CHANGELOG.md` section, commits `release: v<x.y.z>`, tags it and
+publishes to npm. A merge with no note releases nothing. Consumer sites take a new version
+only through their own dependency bump: each site's dependency scanner reports the newer
+`@koehler8/cms`, and that becomes the site's own item. The pipeline writes notes; it never
+edits the version, `CHANGELOG.md`, tags or publishes by hand.
 
 ## Goals (checkable)
 
@@ -72,8 +74,8 @@ Lanes that stay Chris's alone, even as proposals:
   blast radius. Grooming may surface the need with evidence; it does not decide the design.
 - **Toolchain and major dependency direction** (see Dependency posture) — the fleet defers
   these *up to here*, and here they are Chris's deliberate call, not a grooming proposal.
-- **Release cutting.** Version bumps, tags, `CHANGELOG` release headers, and publishing are
-  operator actions. A merged PR is the deliverable; never assume it is published.
+- **Majors and prereleases.** A breaking (major) release or a `beta` line is cut by hand by
+  Chris; the release workflow refuses a `bump: major` note and a prerelease version.
 
 ## Quality bars
 
@@ -125,10 +127,11 @@ highest-blast-radius edits in the whole portfolio.
 ## Never touch
 
 - `**/.env*` and any credential — floored. (No live secrets live in the repo; the belt stays on.)
-- `.github/workflows/publish.yml` — floored; the release mechanism (tag → `npm publish`,
-  references the `NPM_TOKEN` secret). Publishing is operator-only.
+- `.github/workflows/publish.yml` — floored; the release mechanism (change notes → version,
+  tag, `npm publish` via npm trusted publishing, which is bound to this file name).
 - `scripts/patch-lru-cache-tla.js` — the load-bearing Node-20 lru-cache patch; do not remove
   until upstream fixes.
 - The WCAG 2.2 AA guarantees and the `base` theme palette — no change without the contrast
   re-audit above.
-- `CHANGELOG.md` release headers and `package.json` version — release hygiene is Chris's.
+- `CHANGELOG.md` and the `package.json` version — the release workflow writes them from the
+  change notes; a PR adds a note instead.

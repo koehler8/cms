@@ -1,18 +1,92 @@
 name: Publish to npm
 
+# Two ways in, one publish path:
+#   - push to main: `prepare` turns any `.changes/*.md` notes into the next
+#     version + CHANGELOG section, commits and tags it, and the same run
+#     publishes. No notes → nothing happens. (A tag pushed with GITHUB_TOKEN
+#     does not start another workflow run, so publishing has to happen here.)
+#   - push of a v* tag by hand: the manual release path, unchanged.
+# The file name is part of npm's Trusted Publisher config — do not rename it.
+
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
+# One release at a time; a merge that lands mid-release waits, then reads the
+# fresh main (so notes already released are gone and it does nothing).
+concurrency:
+  group: cms-release
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # Pinned Node/npm (.nvmrc → 22.x / npm 10.9): `npm version` rewrites the
+      # lockfile's version fields, and an npm 11 write would break consumers.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Plan from change notes
+        id: plan
+        run: |
+          PLAN=$(node tools/release/release-from-changes.mjs plan)
+          echo "$PLAN"
+          echo "release=$(node -p "JSON.parse(process.argv[1]).release" "$PLAN")" >> "$GITHUB_OUTPUT"
+          echo "to=$(node -p "JSON.parse(process.argv[1]).to || ''" "$PLAN")" >> "$GITHUB_OUTPUT"
+
+      - name: Version, changelog, commit and tag
+        id: release
+        if: steps.plan.outputs.release == 'true'
+        env:
+          TO: ${{ steps.plan.outputs.to }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/v${TO}" >/dev/null; then
+            echo "::error::Tag v${TO} already exists — fix package.json or the notes by hand"
+            exit 1
+          fi
+          npm version "$TO" --no-git-tag-version
+          node tools/release/release-from-changes.mjs apply --version "$TO"
+          npm run check:lockfile-version
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A package.json package-lock.json CHANGELOG.md .changes
+          git commit -m "release: v${TO}"
+          git tag "v${TO}"
+          git push origin HEAD:main "v${TO}"
+          echo "tag=v${TO}" >> "$GITHUB_OUTPUT"
+
   # Quality gate: the tag must match package.json, and the suite must be green,
   # before anything reaches the registry. A red tree or a mis-tagged commit
   # fails here instead of publishing.
   test:
+    needs: prepare
+    if: >-
+      !cancelled() && (
+        (startsWith(github.ref, 'refs/tags/v') && needs.prepare.result == 'skipped') ||
+        (needs.prepare.result == 'success' && needs.prepare.outputs.tag != '')
+      )
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
 
       - uses: actions/setup-node@v4
         with:
@@ -21,8 +95,8 @@ jobs:
       - name: Assert tag matches package.json version
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          if [[ "v${VERSION}" != "${GITHUB_REF_NAME}" ]]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version v${VERSION}"
+          if [[ "v${VERSION}" != "${TAG}" ]]; then
+            echo "::error::Tag ${TAG} does not match package.json version v${VERSION}"
             exit 1
           fi
 
@@ -33,7 +107,8 @@ jobs:
         run: npm test
 
   publish:
-    needs: test
+    needs: [prepare, test]
+    if: ${{ !cancelled() && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
     # Trusted publishing (OIDC): npm accepts this workflow's identity token
     # directly — no NPM_TOKEN secret, nothing to expire or rotate. Configured
@@ -41,8 +116,12 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    env:
+      TAG: ${{ needs.prepare.outputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
 
       - uses: actions/setup-node@v4
         with:

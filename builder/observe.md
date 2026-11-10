@@ -54,7 +54,7 @@
 Never `npm publish`, never `git tag`, never `git push`, never `gh workflow run` (do not trigger
 the publish workflow), never edit `CHANGELOG.md`, `package.json`, or any source. The tempting
 executables on this host are exactly the release levers — the publish trigger, `npm publish`,
-`git tag`. The observer reports; the operator releases.
+`git tag`. The observer reports; releases come only from `publish.yml` on a merge to main.
 
 ## Boundaries
 
