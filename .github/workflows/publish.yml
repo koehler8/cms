@@ -1,11 +1,16 @@
 name: Publish to npm
 
-# Two ways in, one publish path:
+# Two runs per automatic release, one publish path:
 #   - push to main: `prepare` turns any `.changes/*.md` notes into the next
-#     version + CHANGELOG section, commits and tags it, and the same run
-#     publishes. No notes → nothing happens. (A tag pushed with GITHUB_TOKEN
-#     does not start another workflow run, so publishing has to happen here.)
-#   - push of a v* tag by hand: the manual release path, unchanged.
+#     version + CHANGELOG section, commits and tags it, then dispatches this
+#     workflow on the new tag. No notes → nothing happens.
+#   - a run on a v* tag (that dispatch, or a tag pushed by hand): `test` +
+#     `publish`. Publishing only ever happens in a tag run, so npm's provenance
+#     names the tagged release commit — the commit the package is built from.
+#     (A run's provenance records the commit that STARTED it; publishing inside
+#     the main run would credit the notes commit instead.)
+# A tag pushed with GITHUB_TOKEN starts no run, but a workflow_dispatch does —
+# that is why prepare dispatches rather than relying on the tag push.
 # The file name is part of npm's Trusted Publisher config — do not rename it.
 
 on:
@@ -14,11 +19,13 @@ on:
       - main
     tags:
       - 'v*'
+  workflow_dispatch:
 
-# One release at a time; a merge that lands mid-release waits, then reads the
-# fresh main (so notes already released are gone and it does nothing).
+# Main runs queue behind each other (a merge that lands mid-release waits, then
+# reads the fresh main, so notes already released are gone). Each tag run is
+# its own group, so a queued main run can never displace a pending publish.
 concurrency:
-  group: cms-release
+  group: cms-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -26,9 +33,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-    outputs:
-      tag: ${{ steps.release.outputs.tag }}
+      contents: write # push the release commit and tag
+      actions: write # dispatch the tag run
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,7 +56,6 @@ jobs:
           echo "to=$(node -p "JSON.parse(process.argv[1]).to || ''" "$PLAN")" >> "$GITHUB_OUTPUT"
 
       - name: Version, changelog, commit and tag
-        id: release
         if: steps.plan.outputs.release == 'true'
         env:
           TO: ${{ steps.plan.outputs.to }}
@@ -68,25 +73,24 @@ jobs:
           git commit -m "release: v${TO}"
           git tag "v${TO}"
           git push origin HEAD:main "v${TO}"
-          echo "tag=v${TO}" >> "$GITHUB_OUTPUT"
+
+      - name: Start the publish run on the tag
+        if: steps.plan.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TO: ${{ steps.plan.outputs.to }}
+        run: |
+          gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "v${TO}"
+          echo "::notice::v${TO} tagged; publishing in the run on refs/tags/v${TO}"
 
   # Quality gate: the tag must match package.json, and the suite must be green,
   # before anything reaches the registry. A red tree or a mis-tagged commit
   # fails here instead of publishing.
   test:
-    needs: prepare
-    if: >-
-      !cancelled() && (
-        (startsWith(github.ref, 'refs/tags/v') && needs.prepare.result == 'skipped') ||
-        (needs.prepare.result == 'success' && needs.prepare.outputs.tag != '')
-      )
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    env:
-      TAG: ${{ needs.prepare.outputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG }}
 
       - uses: actions/setup-node@v4
         with:
@@ -95,8 +99,8 @@ jobs:
       - name: Assert tag matches package.json version
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          if [[ "v${VERSION}" != "${TAG}" ]]; then
-            echo "::error::Tag ${TAG} does not match package.json version v${VERSION}"
+          if [[ "v${VERSION}" != "${GITHUB_REF_NAME}" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version v${VERSION}"
             exit 1
           fi
 
@@ -107,8 +111,7 @@ jobs:
         run: npm test
 
   publish:
-    needs: [prepare, test]
-    if: ${{ !cancelled() && needs.test.result == 'success' }}
+    needs: test
     runs-on: ubuntu-latest
     # Trusted publishing (OIDC): npm accepts this workflow's identity token
     # directly — no NPM_TOKEN secret, nothing to expire or rotate. Configured
@@ -116,12 +119,8 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    env:
-      TAG: ${{ needs.prepare.outputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG }}
 
       - uses: actions/setup-node@v4
         with:
