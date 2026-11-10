@@ -16,7 +16,7 @@ professional, accessible, SEO-correct site by editing JSON, and never ship a fra
 that regresses that promise or breaks the fleet.**
 
 The repo is the framework core (Vite plugin, bundled components, composables, utils, the
-`base` theme) plus a Vitest suite (`tests/` mirrors `src/`). Node 20.19 / npm 10.8, pinned to
+`base` theme) plus a Vitest suite (`tests/` mirrors `src/`). Node 22.23.2 / npm 10.9, pinned to
 AWS Amplify parity for every consumer.
 
 **Merge is not release, and release is not deploy.** Publishing `@koehler8/cms` is a *manual*
@@ -105,22 +105,26 @@ The mechanics that serve the mission:
 Vertex CMS is **where the fleet's framework-level dependency decisions are made** — every
 consumer site's facet explicitly defers toolchain and major bumps (vite, vue, vue-router,
 `@vitejs/plugin-vue`, vite-ssg, `@koehler8/cms`) *up to here*. That makes dep changes here the
-highest-blast-radius edits in the whole portfolio, and it makes them **Chris's deliberate,
-supervised call — not routine grooming proposals.**
+highest-blast-radius edits in the whole portfolio.
 
-- **`package-lock.json` is floored (`never-touch`).** The #1 cause of consumer-site deploy
-  failures is a lockfile regenerated on the wrong npm version (npm 11 strips optional-dep
-  entries Amplify needs, or omits entries npm 10 expects). Chris drives dep sweeps by hand
-  with `nvm use` first and targeted `npm install <pkg>@<ver>` — never a full regen. Grooming
-  does not touch the lockfile, so dependency bumps are out of its routine scope.
-- If a dependency issue is real (a security advisory, a broken transitive), grooming may
-  **surface it as evidence** for Chris to action deliberately — it does not open the bump.
-- Never propose a major of anything, and never propose a toolchain bump, as pipeline work.
+- **Targeted patch/minor bumps are pipeline work when the item names the packages** — a
+  security advisory, a broken transitive, a peer-dependency floor. The pipeline may change
+  `package.json` and `package-lock.json` for exactly those packages, with targeted
+  `npm install <pkg>@<ver>` on the runner's pinned Node 22.23.2 / npm 10.9 — never a full
+  regen, never `npm update`.
+- **The lockfile is guarded by `builder/verify.json`, not a floor.** The #1 cause of
+  consumer-site deploy failures is a lockfile regenerated on the wrong npm version (npm 11
+  strips optional-dep entries Amplify needs, or omits entries npm 10 expects). Verify refuses
+  any npm but 10.9.x, then runs `scripts/check-site-lockfile.mjs` (every optional dependency
+  still has its entry) on every PR.
+- Grooming does not propose dependency bumps on its own initiative; a real dependency issue is
+  surfaced as evidence and becomes pipeline work only when Chris files it.
+- Never a major of anything, and never a toolchain (Node/npm) bump, as pipeline work — those
+  stay Chris's deliberate, supervised call.
 
 ## Never touch
 
 - `**/.env*` and any credential — floored. (No live secrets live in the repo; the belt stays on.)
-- `package-lock.json` — floored; lockfile discipline above.
 - `.github/workflows/publish.yml` — floored; the release mechanism (tag → `npm publish`,
   references the `NPM_TOKEN` secret). Publishing is operator-only.
 - `scripts/patch-lru-cache-tla.js` — the load-bearing Node-20 lru-cache patch; do not remove

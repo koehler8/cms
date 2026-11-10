@@ -3,13 +3,11 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// PR #6 shipped scripts/check-lockfile-version.mjs deliberately standalone —
-// wiring it into `npm test` / builder/verify.json would hold the mandatory
-// `npm ci && npm test` verify gate hostage to a package-lock.json fix that
-// only a human can apply by hand (the file is floored/never-touch for every
-// automated pipeline stage; see CLAUDE.md "Lockfile and npm version" and the
-// script's own header comment). This guards that design decision: it fails
-// the moment anything re-wires the detector into the gate.
+// scripts/check-lockfile-version.mjs is deliberately standalone — wiring it
+// into `npm test` / builder/verify.json would make every pipeline PR fail on
+// release-hygiene drift a hand release introduced, unrelated to the PR's own
+// change (see CLAUDE.md "Lockfile and npm version"). This guards that design
+// decision: it fails the moment anything re-wires the detector into the gate.
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 

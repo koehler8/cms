@@ -1,6 +1,8 @@
 {
   "commands": [
+    "test \"$(npm -v | cut -d. -f1,2)\" = 10.9 || { echo \"verify: npm $(npm -v) is not the pinned 10.9.x — a lockfile written by it would break consumer sites\" >&2; exit 1; }",
     "npm ci --no-audit --no-fund",
+    "node scripts/check-site-lockfile.mjs .",
     "npm test"
   ]
 }
