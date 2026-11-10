@@ -13,11 +13,11 @@
   "dependencies": {
     "@koehler8/cms": "^1.0.0",
     "@koehler8/cms-ext-compliance": "^1.0.0",
-    "@vitejs/plugin-vue": "^6.0.1",
-    "vite": "^8.0.3",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "vite": "^8.3.0",
     "vite-ssg": "^28.2.2",
-    "vue": "^3.5.22",
-    "vue-router": "^5.0.4"
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1"
   },
   "engines": {
     "node": ">=20.19.0",
