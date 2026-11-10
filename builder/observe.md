@@ -2,8 +2,8 @@
 
 > Sole member repo: this facet IS the composite observer's source map. Vertex CMS is a
 > published library with no running service and no live URL — the sources below are the
-> runner's own fresh clone plus two network reads (the npm registry and GitHub Actions). All
-> read-only.
+> runner's own fresh clone plus network reads (the npm registry, its advisory database, and
+> GitHub Actions). All read-only.
 
 ## Sources
 
@@ -36,6 +36,19 @@
    cause (reproduces from the clone / the published beta, not the site's own config), file the
    **framework** defect, and do not enumerate per-site symptoms here.
 
+5. **The dependency scanner — `builder/scanners/dependencies.mjs`** (runs in the clone; its one
+   network read is `npm audit --json --package-lock-only`; it writes nothing):
+   - Security advisories in cms's **runtime** dependency tree, the packages every consumer
+     installs with the framework. A runtime advisory is a framework defect (priority 4), filed
+     once here rather than on every site. Dev-only advisories are silent.
+   - Peer-range gaps: a `peerDependencies` range that does not admit the devDependency version
+     cms is tested against, or whose floor admits a major cms never tests. Minor or patch
+     spread under the floor is not a gap.
+   - A "dependency scanner blind" finding means the lockfile or the audit could not be read —
+     treat that source as unread, never as clean.
+   - An advisory with no fixed release is accepted only in `builder/dependency-holds.json`,
+     with a reason; an invalid hold silences nothing and files its own finding.
+
 ## Read-only means read-only
 
 Never `npm publish`, never `git tag`, never `git push`, never `gh workflow run` (do not trigger
@@ -45,8 +58,11 @@ executables on this host are exactly the release levers — the publish trigger,
 
 ## Boundaries
 
-- Defects in the framework only: a broken release, a red main, a beta that breaks consumers, or
+- Defects in the framework only: a broken release, a red main, a beta that breaks consumers, a
+  security advisory in cms's own runtime dependency tree or a peer-range gap, or
   release-hygiene drift. Feature and refactor ideas are not findings.
+- Dev-only advisories, outdated packages, `npm outdated` lines and bump proposals are not
+  findings.
 - Prerelease `beta.N` under the `beta` dist-tag and consumer sites on older pins are BY DESIGN —
   never findings.
 - Severity asymmetry: broken publish / red main = high; a stale CHANGELOG line = low.
@@ -55,7 +71,8 @@ executables on this host are exactly the release levers — the publish trigger,
 ## Coverage block
 
 Every run — including a healthy run with zero findings — must close with a coverage block:
-mark each configured source (the clone, the npm registry, and GitHub Actions; note when the
+mark each configured source (the clone, the npm registry, GitHub Actions, and the dependency
+scanner in source 5; note when the
 consumer-blast-radius check in source 4 was skipped because no bad beta was suspected) as
 covered, and state the window or through-timestamp this pass inspected. Emit this on every
 run, not only when something is found — reporting a source covered does not require or

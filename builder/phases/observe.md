@@ -28,7 +28,16 @@ Priorities, in order (most-critical first):
    observer's lane — **file the framework defect (the bad beta), not the site symptom**, and
    only when the evidence points at the framework, not the consumer's own config.
 
-4. **Release-hygiene drift.** Lower severity: a version bumped without a `CHANGELOG.md` entry, a
+4. **Dependency defects in cms's own tree.** A security advisory in cms's runtime (non-dev)
+   dependency tree — the packages every consumer installs with the framework — is a framework
+   defect: file it here, once, not as a symptom on each consuming site. So is a peer-range gap:
+   a `peerDependencies` range that does not admit the version cms is developed and tested
+   against, or whose floor admits a major cms never tests. `builder/scanners/dependencies.mjs`
+   reads both (`npm audit` over the lockfile, plus the peer check) and sets the severity: a
+   critical or high runtime advisory is high, moderate is low, low is info. An advisory that
+   exists only in the dev tree never ships to a consumer and is not a finding.
+
+5. **Release-hygiene drift.** Lower severity: a version bumped without a `CHANGELOG.md` entry, a
    tag with no publish, a publish with no matching `CHANGELOG` header, or `package.json` version
    ahead of both the last tag and the last published version with no release in flight. File
    conservatively — this is housekeeping, not an outage.
@@ -46,12 +55,13 @@ Known-benign — never file:
   own schedule; an old pin is by design, never a finding.
 - **The lru-cache postinstall patch mutating `node_modules/**/lru-cache`** — load-bearing Node-20
   compat, by design.
-- **Dependency findings** — an outdated package, an `npm outdated` line or a bump proposal is
-  not an observer defect; never file one.
+- **Outdated packages** — an `npm outdated` line, an available update or a bump proposal is
+  never a finding. A security advisory or a peer-range gap is not "outdated": see priority 4.
 
 Boundaries — defects only; proposals and feature ideas are not findings. Don't re-file what is already
 visible on the repo's Actions tab if a release just happened and Chris is watching it. Severity
-asymmetry: broken publish or red main = high; a stale CHANGELOG line or a doc drift = low —
+asymmetry: broken publish or red main = high; a dependency defect takes the scanner's severity;
+a stale CHANGELOG line or a doc drift = low —
 investigate hard, file conservatively. Zero findings on a healthy day is the expected outcome.
 
 ## Coverage block
