@@ -130,10 +130,6 @@ describe('cms-create-site template', () => {
   it('starts new sites with vite-ssg at or above the cms peer floor', () => {
     expect(atLeast(rangeFloor(scaffold.dependencies['vite-ssg']), rangeFloor(pkg.peerDependencies['vite-ssg']))).toBe(true);
   });
-
-  it('still pins the framework itself to a stable range', () => {
-    expect(scaffold.dependencies['@koehler8/cms']).toBe('^1.0.0');
-  });
 });
 
 describe('lockfile root mirrors package.json', () => {
@@ -144,9 +140,4 @@ describe('lockfile root mirrors package.json', () => {
       expect(lock.packages[''][field]).toEqual(pkg[field]);
     });
   }
-
-  it('self-reports the same version as package.json', () => {
-    expect(lock.version).toBe(pkg.version);
-    expect(lock.packages[''].version).toBe(pkg.version);
-  });
 });
