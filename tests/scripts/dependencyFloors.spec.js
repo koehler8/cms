@@ -94,6 +94,36 @@ describe('fast-uri advisory fix', () => {
   });
 });
 
+describe('undici advisory fix (GHSA-xjj6-f33q-929c)', () => {
+  // undici arrives only through vite-ssg -> jsdom (`undici ^7.21.0`), which is a
+  // peer subtree consumers install. Releases in >=7.18.0 <7.30.1 let an excessive
+  // content-encoding chain raise an unhandled error (denial of service). cms does
+  // not declare undici, so the lockfile is what must stay clear of that window.
+  // A copy outside the window (a newer line, or removal) is always acceptable.
+  const VULN_FROM = [7, 18, 0];
+  const FIXED = [7, 30, 1];
+  const entries = Object.entries(lock.packages).filter(
+    ([key]) => key === 'node_modules/undici' || key.endsWith('/node_modules/undici'),
+  );
+
+  it('leaves no installed undici inside the vulnerable range', () => {
+    for (const [key, entry] of entries) {
+      const v = parseVersion(entry.version);
+      const vulnerable = atLeast(v, VULN_FROM) && !atLeast(v, FIXED);
+      expect(vulnerable, `${key} is ${entry.version}, inside >=7.18.0 <7.30.1`).toBe(false);
+    }
+  });
+
+  it('keeps every installed undici tarball consistent with its recorded version', () => {
+    for (const [key, entry] of entries) {
+      expect(entry.resolved, `${key} resolved`).toBe(
+        `https://registry.npmjs.org/undici/-/undici-${entry.version}.tgz`,
+      );
+      expect(entry.integrity, `${key} integrity`).toMatch(/^sha512-/);
+    }
+  });
+});
+
 describe('peerDependencies floors', () => {
   for (const [name, floor] of Object.entries(PEER_FLOORS)) {
     it(`${name} peer floor is at least ${floor}`, () => {
