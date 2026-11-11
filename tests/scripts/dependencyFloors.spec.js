@@ -10,6 +10,9 @@ import { fileURLToPath } from 'node:url';
 //    below 3.1.9 carries GHSA-w74x-v6f9-j3xg and GHSA-xhq7-xmqj-769h. Because
 //    npm `overrides` only apply in a top-level project, the only way to force a
 //    patched copy into a consumer's tree is for cms to depend on it directly.
+//  - undici arrives only through vite-ssg -> jsdom and is not declared by cms;
+//    the lockfile must stay clear of the GHSA-xjj6-f33q-929c window
+//    (>=7.18.0 <7.30.1).
 //  - The peer floors must not trail what cms is developed and tested against,
 //    or sites lock an older in-range version and get flagged.
 //
