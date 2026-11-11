@@ -13,6 +13,9 @@ import { fileURLToPath } from 'node:url';
 //  - undici arrives only through vite-ssg -> jsdom and is not declared by cms;
 //    the lockfile must stay clear of the GHSA-xjj6-f33q-929c window
 //    (>=7.18.0 <7.30.1).
+//  - sharp is a declared runtime dependency (image-variants pipeline) whose
+//    lockfile pin must stay at or above the GHSA-wq5f-xc86-pv6w fix (0.35.5),
+//    with its exact-pinned @img/sharp* platform packages moving in step.
 //  - The peer floors must not trail what cms is developed and tested against,
 //    or sites lock an older in-range version and get flagged.
 //
@@ -123,6 +126,79 @@ describe('undici advisory fix (GHSA-xjj6-f33q-929c)', () => {
         `https://registry.npmjs.org/undici/-/undici-${entry.version}.tgz`,
       );
       expect(entry.integrity, `${key} integrity`).toMatch(/^sha512-/);
+    }
+  });
+});
+
+describe('sharp advisory fix (GHSA-wq5f-xc86-pv6w)', () => {
+  // sharp < 0.35.5 bundles a librsvg with CVE-2026-96889. sharp is a runtime
+  // dependency of the image-variants pipeline, so every consumer installs it.
+  // `^0.35.3` already admits the fix, so the lockfile is what must not sit below
+  // it. A newer release (or removal) is always acceptable.
+  const FIXED = [0, 35, 5];
+  const isSharp = (key) => key === 'node_modules/sharp' || key.endsWith('/node_modules/sharp');
+  const sharpEntries = Object.entries(lock.packages).filter(([key]) => isSharp(key));
+
+  it('keeps sharp a runtime dependency whose range admits the fix', () => {
+    expect(pkg.dependencies?.sharp, 'sharp must stay in dependencies').toBeTruthy();
+    // The locked copy must satisfy the declared range's floor (no drift the
+    // other way), so the fix is reachable without touching package.json.
+    expect(atLeast(parseVersion(lock.packages['node_modules/sharp'].version), rangeFloor(pkg.dependencies.sharp))).toBe(true);
+  });
+
+  it('leaves no installed sharp below the fixed release', () => {
+    expect(sharpEntries.length).toBeGreaterThan(0);
+    for (const [key, entry] of sharpEntries) {
+      expect(atLeast(parseVersion(entry.version), FIXED), `${key} is ${entry.version}, below 0.35.5`).toBe(true);
+    }
+  });
+
+  it('keeps every installed sharp tarball consistent with its recorded version', () => {
+    for (const [key, entry] of sharpEntries) {
+      expect(entry.resolved, `${key} resolved`).toBe(`https://registry.npmjs.org/sharp/-/sharp-${entry.version}.tgz`);
+      expect(entry.integrity, `${key} integrity`).toMatch(/^sha512-/);
+    }
+  });
+
+  it('moves every locked @img/sharp-* platform package to the version sharp pins', () => {
+    for (const [key, entry] of sharpEntries) {
+      const pins = entry.optionalDependencies || {};
+      const platform = Object.entries(pins).filter(([name]) => /^@img\/sharp-(?!libvips)/.test(name));
+      expect(platform.length, `${key} declares no @img/sharp-* optionalDependencies`).toBeGreaterThan(0);
+      const scope = key.slice(0, -'sharp'.length);
+      for (const [name, pinned] of platform) {
+        const locked = lock.packages[`${scope}node_modules/${name}`] ?? lock.packages[`node_modules/${name}`];
+        if (!locked) continue; // optional and absent for this platform set is not a mismatch
+        expect(locked.version, `${name} locked at ${locked.version}, sharp@${entry.version} pins ${pinned}`).toBe(pinned);
+        expect(locked.resolved, `${name} resolved`).toBe(
+          `https://registry.npmjs.org/${name}/-/${name.split('/')[1]}-${pinned}.tgz`,
+        );
+      }
+    }
+  });
+
+  it('moves every locked @img/sharp-libvips-* package to the version its platform package pins', () => {
+    const platformKeys = Object.keys(lock.packages).filter((key) => /^node_modules\/@img\/sharp-(?!libvips)/.test(key));
+    expect(platformKeys.length).toBeGreaterThan(0);
+    for (const key of platformKeys) {
+      const entry = lock.packages[key];
+      for (const [name, pinned] of Object.entries(entry.optionalDependencies || {})) {
+        const locked = lock.packages[`node_modules/${name}`];
+        if (!locked) continue;
+        expect(locked.version, `${name} locked at ${locked.version}, ${key}@${entry.version} pins ${pinned}`).toBe(pinned);
+      }
+    }
+  });
+
+  it('keeps sharp installable on both Amplify Linux targets', () => {
+    for (const [key, entry] of sharpEntries) {
+      for (const name of ['@img/sharp-linux-x64', '@img/sharp-linuxmusl-x64']) {
+        expect(entry.optionalDependencies?.[name], `${key} lacks ${name}`).toBeTruthy();
+        const locked = lock.packages[`node_modules/${name}`];
+        expect(locked, `${name} missing from the lockfile`).toBeTruthy();
+        expect(locked.resolved).toBeTruthy();
+        expect(locked.integrity).toMatch(/^sha512-/);
+      }
     }
   });
 });
