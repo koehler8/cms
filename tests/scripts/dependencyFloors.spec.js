@@ -217,6 +217,45 @@ describe('source-map-js advisory fix (GHSA-68fv-2mgg-jv7q)', () => {
   });
 });
 
+describe('vite advisory fix (GHSA-587h-7wmj-h5pm)', () => {
+  // vite is a peer and a devDependency, so the lockfile installs it into the
+  // runtime tree. Releases in >=8.3.0 <=8.3.2 carry a launch-editor existence
+  // check that can be bypassed on Windows. The lockfile is what must stay
+  // clear of that window; any later release (or a newer minor) is fine. The
+  // peer floor is a separate decision and is not asserted here.
+  const VULN_FROM = [8, 3, 0];
+  const FIXED = [8, 3, 3];
+  const entries = Object.entries(lock.packages).filter(
+    ([key]) => key === 'node_modules/vite' || key.endsWith('/node_modules/vite'),
+  );
+
+  it('locks vite in the tree', () => {
+    expect(lock.packages['node_modules/vite'], 'node_modules/vite entry').toBeTruthy();
+  });
+
+  it('leaves no installed vite inside the vulnerable range', () => {
+    for (const [key, entry] of entries) {
+      const v = parseVersion(entry.version);
+      const vulnerable = atLeast(v, VULN_FROM) && !atLeast(v, FIXED);
+      expect(vulnerable, `${key} is ${entry.version}, inside >=8.3.0 <=8.3.2`).toBe(false);
+    }
+  });
+
+  it('keeps every installed vite tarball consistent with its recorded version', () => {
+    for (const [key, entry] of entries) {
+      expect(entry.resolved, `${key} resolved`).toBe(
+        `https://registry.npmjs.org/vite/-/vite-${entry.version}.tgz`,
+      );
+      expect(entry.integrity, `${key} integrity`).toMatch(/^sha512-/);
+    }
+  });
+
+  it('develops against a vite no lower than the peer floor', () => {
+    const locked = parseVersion(lock.packages['node_modules/vite'].version);
+    expect(atLeast(locked, rangeFloor(pkg.peerDependencies.vite))).toBe(true);
+  });
+});
+
 describe('sharp advisory fix (GHSA-wq5f-xc86-pv6w)', () => {
   // sharp < 0.35.5 bundles a librsvg with CVE-2026-96889. sharp is a runtime
   // dependency of the image-variants pipeline, so every consumer installs it.
