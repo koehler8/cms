@@ -10,9 +10,11 @@ import { fileURLToPath } from 'node:url';
 //    below 3.1.9 carries GHSA-w74x-v6f9-j3xg and GHSA-xhq7-xmqj-769h. Because
 //    npm `overrides` only apply in a top-level project, the only way to force a
 //    patched copy into a consumer's tree is for cms to depend on it directly.
-//  - undici arrives only through vite-ssg -> jsdom and is not declared by cms;
-//    the lockfile must stay clear of the GHSA-xjj6-f33q-929c window
-//    (>=7.18.0 <7.30.1).
+//  - undici arrives through vite-ssg -> jsdom (`undici ^7.21.0`). Releases
+//    below 7.30.1 carry GHSA-xjj6-f33q-929c and GHSA-4w7w-5xrc-9h26; the
+//    lockfile must stay clear of them, and because a lockfile or `overrides`
+//    entry never reaches a consumer, cms declares a patched floor directly
+//    (same mechanism as fast-uri).
 //  - sharp is a declared runtime dependency (image-variants pipeline) whose
 //    lockfile pin must stay at or above the GHSA-wq5f-xc86-pv6w fix (0.35.5),
 //    with its exact-pinned @img/sharp* platform packages moving in step.
@@ -103,8 +105,9 @@ describe('fast-uri advisory fix', () => {
 describe('undici advisory fix (GHSA-xjj6-f33q-929c)', () => {
   // undici arrives only through vite-ssg -> jsdom (`undici ^7.21.0`), which is a
   // peer subtree consumers install. Releases in >=7.18.0 <7.30.1 let an excessive
-  // content-encoding chain raise an unhandled error (denial of service). cms does
-  // not declare undici, so the lockfile is what must stay clear of that window.
+  // content-encoding chain raise an unhandled error (denial of service). The
+  // lockfile must stay clear of that window (the direct dependency floor is
+  // pinned in the GHSA-4w7w-5xrc-9h26 block below).
   // A copy outside the window (a newer line, or removal) is always acceptable.
   const VULN_FROM = [7, 18, 0];
   const FIXED = [7, 30, 1];
@@ -127,6 +130,53 @@ describe('undici advisory fix (GHSA-xjj6-f33q-929c)', () => {
       );
       expect(entry.integrity, `${key} integrity`).toMatch(/^sha512-/);
     }
+  });
+});
+
+describe('undici advisory fix (GHSA-4w7w-5xrc-9h26)', () => {
+  // Releases in >=7.0.0 <7.30.1 allow cache poisoning and cross-user disclosure
+  // via cross-origin redirects. undici reaches consumers only through the
+  // vite-ssg peer -> jsdom (`undici ^7.21.0`), whose range admits vulnerable
+  // releases, and npm `overrides` do not apply in a consumer's tree. So cms
+  // declares undici as a direct dependency with a patched floor. No cms code
+  // imports it; the declaration exists only to set that floor.
+  const FIXED = [7, 30, 1];
+  const isUndici = (key) => key === 'node_modules/undici' || key.endsWith('/node_modules/undici');
+  const entries = Object.entries(lock.packages).filter(([key]) => isUndici(key));
+
+  it('is a direct runtime dependency whose range cannot admit a vulnerable release', () => {
+    expect(pkg.dependencies?.undici, 'undici must be in dependencies').toBeTruthy();
+    expect(pkg.devDependencies?.undici).toBeUndefined();
+    expect(pkg.peerDependencies?.undici).toBeUndefined();
+    expect(atLeast(rangeFloor(pkg.dependencies.undici), FIXED)).toBe(true);
+  });
+
+  it('keeps undici on the 7.x line jsdom accepts', () => {
+    expect(rangeFloor(pkg.dependencies.undici)[0]).toBe(7);
+  });
+
+  it('resolves every installed undici in the lockfile to a patched release', () => {
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [key, entry] of entries) {
+      expect(atLeast(parseVersion(entry.version), FIXED), `${key} is ${entry.version}, below 7.30.1`).toBe(true);
+      expect(entry.resolved, `${key} resolved`).toMatch(/^https:\/\/registry\.npmjs\.org\//);
+      expect(entry.integrity, `${key} integrity`).toMatch(/^sha512-/);
+    }
+  });
+
+  it('hoists a single undici so the declared dependency and jsdom share the patched copy', () => {
+    const nested = Object.keys(lock.packages).filter((key) => key.endsWith('/node_modules/undici'));
+    expect(nested).toEqual([]);
+    expect(lock.packages['node_modules/undici']).toBeTruthy();
+  });
+
+  it('satisfies the range of its own dependent (jsdom) as well as the one cms declares', () => {
+    const jsdomRange = lock.packages['node_modules/jsdom']?.dependencies?.undici;
+    expect(jsdomRange).toBeTruthy();
+    const resolved = parseVersion(lock.packages['node_modules/undici'].version);
+    expect(atLeast(resolved, rangeFloor(jsdomRange))).toBe(true);
+    expect(resolved[0]).toBe(rangeFloor(jsdomRange)[0]);
+    expect(atLeast(resolved, rangeFloor(pkg.dependencies.undici))).toBe(true);
   });
 });
 
