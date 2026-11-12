@@ -130,6 +130,43 @@ describe('undici advisory fix (GHSA-xjj6-f33q-929c)', () => {
   });
 });
 
+describe('source-map-js advisory fix (GHSA-68fv-2mgg-jv7q)', () => {
+  // source-map-js arrives only transitively (vite -> postcss, vue-router ->
+  // @vue/compiler-sfc, jsdom -> css-tree, ...), always as `^1.2.1`, and cms does
+  // not declare it. Releases in >=1.0.0 <1.2.2 let indexed source-map section
+  // offsets block the event loop (denial of service). The lockfile is what must
+  // stay clear of that window; a copy outside it (newer, or removal) is fine.
+  const VULN_FROM = [1, 0, 0];
+  const FIXED = [1, 2, 2];
+  const entries = Object.entries(lock.packages).filter(
+    ([key]) => key === 'node_modules/source-map-js' || key.endsWith('/node_modules/source-map-js'),
+  );
+
+  it('leaves no installed source-map-js inside the vulnerable range', () => {
+    for (const [key, entry] of entries) {
+      const v = parseVersion(entry.version);
+      const vulnerable = atLeast(v, VULN_FROM) && !atLeast(v, FIXED);
+      expect(vulnerable, `${key} is ${entry.version}, inside >=1.0.0 <1.2.2`).toBe(false);
+    }
+  });
+
+  it('keeps every installed source-map-js tarball consistent with its recorded version', () => {
+    for (const [key, entry] of entries) {
+      expect(entry.resolved, `${key} resolved`).toBe(
+        `https://registry.npmjs.org/source-map-js/-/source-map-js-${entry.version}.tgz`,
+      );
+      expect(entry.integrity, `${key} integrity`).toMatch(/^sha512-/);
+    }
+  });
+
+  it('is not declared by cms itself (the fix is a lockfile move, not a new dependency)', () => {
+    expect(pkg.dependencies?.['source-map-js']).toBeUndefined();
+    expect(pkg.devDependencies?.['source-map-js']).toBeUndefined();
+    expect(pkg.peerDependencies?.['source-map-js']).toBeUndefined();
+    expect(pkg.optionalDependencies?.['source-map-js']).toBeUndefined();
+  });
+});
+
 describe('sharp advisory fix (GHSA-wq5f-xc86-pv6w)', () => {
   // sharp < 0.35.5 bundles a librsvg with CVE-2026-96889. sharp is a runtime
   // dependency of the image-variants pipeline, so every consumer installs it.
