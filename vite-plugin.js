@@ -372,6 +372,69 @@ function discoverExtensionCjsDeps(extensionPackages, projectRoot) {
 // plugin's own use) and re-exported here for tests and API stability.
 export { validateExtensionManifests, buildEntrySource };
 
+// site/assets/ holds runtime assets and, by fleet convention, build inputs:
+// `_source/` carries SVG masters, design documents and the one-shot scripts
+// that rasterize the favicon/logo/og-image. The resolver's site glob is eager
+// with `?url`, so Vite emits every match to dist/assets/ (and base64-inlines
+// any file under `build.assetsInlineLimit` into the entry chunk) whether or
+// not a page uses it: content names assets as strings resolved at runtime, so
+// the build cannot tell which files are referenced. These exclusions keep
+// build inputs out of the public deploy. Runtime lookups (resolveAsset,
+// resolveMedia, useResponsiveImage) only ever ask for images and media, so
+// nothing a page can reach is lost.
+//   - every file under a directory with one of these names, at any depth
+export const SITE_ASSET_EXCLUDED_DIRS = ['_source'];
+//   - scripts, notes and design documents anywhere under site/assets/
+export const SITE_ASSET_EXCLUDED_EXTENSIONS = [
+  'js', 'mjs', 'cjs', 'ts', 'mts', 'cts', 'sh', 'md',
+  'pxd', 'pxm', 'psd', 'psb', 'ai', 'sketch', 'fig', 'afdesign', 'afphoto', 'xcf',
+];
+
+export const SITE_ASSET_GLOBS = [
+  '@cms-site/assets/**/*',
+  ...SITE_ASSET_EXCLUDED_DIRS.map((dir) => `!@cms-site/assets/**/${dir}/**`),
+  `!@cms-site/assets/**/*.{${SITE_ASSET_EXCLUDED_EXTENSIONS.join(',')}}`,
+];
+
+// Source of the `virtual:cms-asset-resolver` module. Three globs:
+//   shared    — framework-bundled assets
+//   site      — site/assets/** originals the author put on disk, minus the
+//               build inputs excluded above
+//   variants  — generated variants from node_modules/.cache/
+//               @koehler8/cms/image-variants/{siteKey}/assets/**. The cache
+//               mirrors the site's `assets/` layout so normalizeAssetKey
+//               strips the same `assets/` prefix and surfaces variants under
+//               canonical `img/...` keys. The planner never reads `_source/`
+//               and the manifest is a dotfile, so this glob holds variants
+//               only.
+// Spread order: variants first so site flat-dir wins on collision — a
+// hand-placed file in site/assets/img/ overrides the cached variant.
+export function buildAssetResolverSource() {
+  return `
+import { createAssetResolver } from '@koehler8/cms/utils/assetResolver';
+const shared = import.meta.glob('@cms-framework/src/assets/**/*', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+});
+const site = import.meta.glob(${JSON.stringify(SITE_ASSET_GLOBS)}, {
+  eager: true,
+  query: '?url',
+  import: 'default',
+});
+const variants = import.meta.glob('@cms-variant-cache/assets/**/*', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+});
+const resolver = createAssetResolver(shared, { ...variants, ...site });
+export const resolveAssetUrl = resolver.resolveAssetUrl;
+export const resolveAsset = resolver.resolveAsset;
+export const resolveMedia = resolver.resolveMedia;
+export const assetUrlMap = resolver.assetUrlMap;
+`;
+}
+
 // List every *.vue basename under a directory (recursive). Mirrors the
 // import.meta.glob discovery the runtime registries use.
 function collectVueBasenames(dir) {
@@ -1000,41 +1063,7 @@ export default modules;
       }
 
       if (virtualId === VIRTUAL_ASSETS) {
-        // Three globs:
-        //   shared    — framework-bundled assets
-        //   site      — site/assets/** flat-dir originals (everything the
-        //               author put on disk, including any leftover variants
-        //               from the old pipeline that haven't been cleaned up)
-        //   variants  — generated variants from node_modules/.cache/
-        //               @koehler8/cms/image-variants/{siteKey}/assets/**.
-        //               The cache mirrors the site's `assets/` layout so
-        //               normalizeAssetKey strips the same `assets/` prefix
-        //               and surfaces variants under canonical `img/...` keys.
-        // Spread order: variants first so site flat-dir wins on collision —
-        // a hand-placed file in site/assets/img/ overrides the cached variant.
-        return `
-import { createAssetResolver } from '@koehler8/cms/utils/assetResolver';
-const shared = import.meta.glob('@cms-framework/src/assets/**/*', {
-  eager: true,
-  query: '?url',
-  import: 'default',
-});
-const site = import.meta.glob('@cms-site/assets/**/*', {
-  eager: true,
-  query: '?url',
-  import: 'default',
-});
-const variants = import.meta.glob('@cms-variant-cache/assets/**/*', {
-  eager: true,
-  query: '?url',
-  import: 'default',
-});
-const resolver = createAssetResolver(shared, { ...variants, ...site });
-export const resolveAssetUrl = resolver.resolveAssetUrl;
-export const resolveAsset = resolver.resolveAsset;
-export const resolveMedia = resolver.resolveMedia;
-export const assetUrlMap = resolver.assetUrlMap;
-`;
+        return buildAssetResolverSource();
       }
 
       return null;
