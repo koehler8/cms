@@ -1,41 +1,15 @@
-// Observe scanner — peer-range gaps in @koehler8/cms's own package.json
-// (builder/phases/observe.md, priority 4). Consumer sites install cms beside
-// its peers, so a peer range that promises a version cms never runs on is a
-// framework defect, filed once here instead of once per site.
-//
-// It sits beside builder/scanners/dependencies.mjs, which is buildmill's
-// standard dependency scanner carried byte for byte (advisories, updates,
-// holds). That template has no peer check, so this scanner owns it, under its
-// own titles: no title here is one the dependency scanner files.
-//
-// For each peerDependencies entry that is also a devDependency, the version the
-// lockfile resolves (what cms is developed and tested against) is compared with
-// the peer range:
-//   the range does not admit the tested version        medium
-//   the range admits a major below the tested major     low
-//   the range or the version can't be read              low
-// Minor/patch spread under the floor is not a gap. The range reader handles
-// ^ ~ >= > <= < =, bare and partial versions, spaces and ||; it refuses hyphen
-// ranges, x wildcards and prereleases rather than guess.
-//
-// Never silently blind. Every run first checks the classifier against a
-// built-in fixture (the negative control below). It files a medium "peer-range
-// scanner blind" finding, never [], when that check disagrees or when
-// package.json or the lockfile is missing or unreadable.
-//
-// Speaks only for @koehler8/cms: in a clone whose package.json names another
-// package it prints [] and says why on stderr.
-//
-// Read-only. It reads package.json and package-lock.json, makes no network
-// call, and writes nothing inside the clone.
-//
-// Contract: pure JSON array of { title, detail, severity, proposedChange } on
-// stdout, stderr for notes, exit 0. Empty array = healthy. Titles carry no
-// counts or dates, so finding dedupe (product + title) keeps a dismissed
-// finding quiet until something actually changes.
-//
-// The classifier (peerGapFindings) is exported behind a main-module guard, so
-// tests/scripts/peerRanges.spec.js can import it without starting a scan.
+// Observe scanner: peer-range gaps in @koehler8/cms's own package.json (builder/phases/observe.md,
+// priority 4). It sits beside builder/scanners/dependencies.mjs, buildmill's standard scanner kept
+// byte for byte, which has no peer check; no title here is one that scanner files.
+// Per peerDependencies entry that is also a devDependency, against the version the lockfile resolves:
+// range excludes it → medium; range admits a lower untested major → low; range or version
+// unreadable → low (hyphen ranges, x wildcards and prereleases are refused, not guessed at).
+// Minor/patch spread is not a gap. A built-in negative control checks the classifier every run;
+// a failed control, or a missing or unreadable package.json or lockfile, files a medium
+// "peer-range scanner blind" finding, never []. Speaks only for @koehler8/cms (else [] + a stderr note).
+// Read-only, no network. Contract: JSON array of { title, detail, severity, proposedChange } on
+// stdout, exit 0; titles carry no counts or dates. peerGapFindings is exported behind a
+// main-module guard, so tests can import it without starting a scan.
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -182,9 +156,8 @@ export function peerGapFindings(packageJson, lockPackages, repo) {
 
 // ---------------------------------------------------------- negative control
 
-// A synthetic package run through the same classifier every run. Each peer
-// exercises one verdict; "same" (minor spread) and "untested" (no
-// devDependency) must file nothing.
+// Run through the same classifier every scan: one peer per verdict; "same" (minor
+// spread) and "untested" (no devDependency) must file nothing.
 const CONTROL = {
   lock: {
     "node_modules/same": { version: "1.4.0", dev: true },
@@ -271,9 +244,8 @@ function main() {
   }
 }
 
-// Main-module guard, compared by real path: the runner may reach the clone
-// through a symlink (macOS /tmp is /private/tmp), and a guard that misses
-// would print nothing at all — a silently blind scanner.
+// Compared by real path: the clone may sit behind a symlink (macOS /tmp), and a
+// guard that misses would print nothing at all — a silently blind scanner.
 function isMain() {
   if (!process.argv[1]) return false;
   try {
