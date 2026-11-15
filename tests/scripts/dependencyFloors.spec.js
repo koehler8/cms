@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { satisfies } from '../../tools/fleet/check-lockfile-drift.mjs';
 
 // The framework's dependency contract: what every consuming site inherits when
 // it installs @koehler8/cms.
@@ -18,8 +19,10 @@ import { fileURLToPath } from 'node:url';
 //  - sharp is a declared runtime dependency (image-variants pipeline) whose
 //    lockfile pin must stay at or above the GHSA-wq5f-xc86-pv6w fix (0.35.5),
 //    with its exact-pinned @img/sharp* platform packages moving in step.
-//  - The peer floors must not trail what cms is developed and tested against,
-//    or sites lock an older in-range version and get flagged.
+//  - A peer range is a promise to every consuming site, not a version to keep
+//    fresh: its floor sits at or above the version cms needs and no higher
+//    than the devDependency cms is tested against, and the range admits the
+//    version the lockfile actually tests against.
 //
 // Everything here is a floor or a cross-file invariant, never a snapshot of an
 // exact version, so it keeps holding as the repo moves forward.
@@ -54,7 +57,8 @@ function cmp(a, b) {
 
 const atLeast = (actual, floor) => cmp(actual, floor) >= 0;
 
-// The versions cms is developed and tested against; peers may not sit below.
+// The lowest version of each peer cms needs; peer ranges may not start below it.
+// A dependency refresh moves the devDependency and the lockfile, not these.
 const PEER_FLOORS = {
   vite: '8.3.0',
   vue: '3.5.43',
@@ -340,6 +344,15 @@ describe('peerDependencies floors', () => {
       const dev = pkg.devDependencies?.[name];
       expect(dev, `${name} must be a devDependency so cms is tested against it`).toBeTruthy();
       expect(atLeast(rangeFloor(dev), rangeFloor(pkg.peerDependencies[name]))).toBe(true);
+    });
+
+    it(`${name} peer range admits the ${name} the lockfile tests against`, () => {
+      const locked = lock.packages[`node_modules/${name}`]?.version;
+      expect(locked, `${name} missing from the lockfile`).toBeTruthy();
+      expect(
+        satisfies(locked, pkg.peerDependencies[name]),
+        `${name} ${locked} is outside the peer range ${pkg.peerDependencies[name]}`,
+      ).toBe(true);
     });
   }
 
