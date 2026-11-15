@@ -55,7 +55,8 @@
        silences updates while the installed version is inside its range, and an advisory
        only when its GHSA id is in `acceptedAdvisories`.
      - `dependency scanner blind:` — the lockfile, the audit or the registry could not be read,
-       or its negative control failed. Treat that source as unread, never as clean.
+       its negative control failed, or the scan ran out of its time budget. Treat that source
+       as unread, never as clean.
    - `peer-ranges.mjs` is cms's own peer check; it reads only `package.json` and the lockfile.
      It files `dependency peer gap: <pkg> range excludes the tested version` (medium) when a
      `peerDependencies` range does not admit the devDependency version cms is tested against,

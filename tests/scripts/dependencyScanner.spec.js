@@ -30,7 +30,7 @@ const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
 
 // ---------------------------------------------------------------- npm stub
 
-// STUB_NPM_MODE: ok | garbage | viewfail. A name absent from views.json is an E404.
+// STUB_NPM_MODE: ok | garbage | error | hang | viewfail. A name absent from views.json is an E404.
 const NPM_STUB = `#!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
@@ -39,9 +39,14 @@ const mode = process.env.STUB_NPM_MODE || 'ok';
 const dir = __dirname;
 const sub = args[0];
 if (sub === 'audit') {
-  if (mode === 'garbage') {
+  if (mode === 'hang') {
+    setInterval(() => {}, 1000);
+  } else if (mode === 'garbage') {
     process.stderr.write('npm ERR! something exploded\\n');
     process.stdout.write('this is not json');
+    process.exit(1);
+  } else if (mode === 'error') {
+    process.stdout.write(JSON.stringify({ error: { code: 'ENOAUDIT', summary: 'audit endpoint unreachable' } }));
     process.exit(1);
   } else {
     const text = fs.readFileSync(path.join(dir, 'audit.json'), 'utf8');
@@ -348,6 +353,19 @@ describe('dependencies scanner — runtime and dev-tree advisories', () => {
     expect(sevOf(one('dev-only', 'moderate', 'GHSA-d1d1-ffff-0006'), 'GHSA-d1d1-ffff-0006').severity).toBe('low');
   });
 
+  it('uses stable titles: no dates or counts, and the same set across two runs of the same tree', () => {
+    // audit and the update checks run concurrently, so only the order may differ
+    const opts = { audit: report(fastUriVulns()), views: { ...NO_NEWER, ajv: ['8.20.0', '8.21.0'] } };
+    const a = runScanner(opts).findings.map((f) => f.title).sort();
+    const b = runScanner(opts).findings.map((f) => f.title).sort();
+    expect(a.length).toBeGreaterThan(1);
+    expect(a).toEqual(b);
+    for (const title of a) {
+      expect(title).not.toMatch(/\b\d{4}-\d{2}-\d{2}\b/);
+      expect(title).not.toMatch(/\b\d+ (advisor|vulnerabilit|finding|package)/i);
+    }
+  });
+
   it('prints [] and exits 0 for a tree with no advisories and nothing newer on the registry', () => {
     const { status, findings, stdout } = runScanner();
     expect(status).toBe(0);
@@ -406,6 +424,7 @@ describe('dependencies scanner — never silently blind', () => {
       'no lockfile': { lock: null },
       'unparsable lockfile': { lock: '{ not json' },
       'unreadable audit output': { mode: 'garbage' },
+      'audit error object instead of a report': { mode: 'error' },
       'unreachable registry': { mode: 'viewfail' },
     };
     const seen = Object.entries(causes).map(([label, opts]) => [label, blindOf(opts)]);
@@ -414,6 +433,10 @@ describe('dependencies scanner — never silently blind', () => {
     expect(seen[0][1]).not.toBe(seen[1][1]); // each cause has its own title
   });
 
+  it('files a blind finding when the time budget runs out, instead of printing []', () => {
+    const title = blindOf({ mode: 'hang', env: { BUILDMILL_DEPENDENCY_SCANNER_BUDGET_MS: '400' }, timeout: 15000 });
+    expect(title).toBe('dependency scanner blind: time budget exhausted (cms)');
+  }, 20000);
 });
 
 // ------------------------------------------------------------------------ holds
@@ -428,6 +451,19 @@ describe('dependencies scanner — builder/dependency-holds.json', () => {
     expect(held.filter((f) => /\bvue\b/.test(f.title))).toEqual([]);
     expect(titled(held, 'dependency update: ajv')).toHaveLength(1); // the hold is per package
     expect(titled(runScanner({ views: VUE_UP, holds: hold('2.x') }).findings, 'dependency update: vue')).toHaveLength(1);
+  });
+
+  it('silences an accepted GHSA id while the installed version is inside the hold range, and still files the others on that package', () => {
+    const hold = (range) => [{ package: 'fast-uri', range, reason: 'no fixed release yet', acceptedAdvisories: [GHSA_MODERATE] }];
+    const fastUri = (holds) => {
+      const { findings } = runScanner({ audit: report(fastUriVulns()), holds });
+      expect(invalid(findings)).toEqual([]);
+      return findings.filter((f) => f.title.includes('fast-uri')).map(text).join('\n');
+    };
+    const held = fastUri(hold('3.x')); // fast-uri 3.1.8 is installed
+    expect(held).not.toContain(GHSA_MODERATE);
+    expect(held).toContain(GHSA_LOW);
+    expect(fastUri(hold('4.x'))).toContain(GHSA_MODERATE); // outside the range: not honoured
   });
 
   it('honours no hold without a reason: files "holds invalid" (medium), and still files what it tried to silence', () => {

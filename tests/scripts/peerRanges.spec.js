@@ -161,6 +161,20 @@ describe('peer-ranges scanner — peer-dependency gap', () => {
     expect(runPeer({ pkg, lock }).findings).toEqual([]);
   });
 
+  it('files one finding per gap with the {title, detail, severity, proposedChange} contract, and stable titles across runs', () => {
+    const a = runPeer(GAPPY()).findings;
+    expect(a.map((f) => [f.title, f.severity]).sort()).toEqual([
+      ['dependency peer gap: vite admits untested 7.x (cms)', 'low'],
+      ['dependency peer gap: vue range excludes the tested version (cms)', 'medium'],
+      ['dependency peer range unreadable: pinia (cms)', 'low'],
+    ]);
+    for (const f of a) {
+      for (const field of ['title', 'detail', 'proposedChange']) expect(typeof f[field] === 'string' && f[field].length > 0, field).toBe(true);
+      expect(f.title).not.toMatch(/\b\d{4}-\d{2}-\d{2}\b/);
+    }
+    expect(runPeer(GAPPY()).findings.map((f) => f.title)).toEqual(a.map((f) => f.title));
+  });
+
   it('stays silent in a clone whose package.json is not @koehler8/cms, with or without a lockfile', () => {
     const gap = fixture({ name: 'site-example', peers: { vue: '^3.5.0' }, dev: { vue: '^3.4.0' }, locked: { vue: '3.4.9' } });
     expect(runPeer(gap).findings).toEqual([]);
@@ -291,5 +305,23 @@ describe('peer-ranges scanner — pure functions', () => {
     expect(writes).toBe(0);
     expect(typeof mod.peerGapFindings).toBe('function');
     expect(mod.peerGapFindings({ name: '@koehler8/cms', devDependencies: { vue: '^3.5.43' } }, {}, 'cms')).toEqual([]);
+  });
+
+  it('peerGapFindings: unsatisfied → medium, older peer-floor major → low, minor spread → none', async () => {
+    const { mod } = await load();
+    const lock = {
+      'node_modules/vite': lockEntry('8.3.0', { dev: true }),
+      'node_modules/vue': lockEntry('3.4.9', { dev: true }),
+      'node_modules/vue-router': lockEntry('5.3.1', { dev: true }),
+    };
+    const pkg = {
+      name: '@koehler8/cms',
+      devDependencies: { vite: '^8.3.0', vue: '^3.4.0', 'vue-router': '^5.3.0' },
+      peerDependencies: { vite: '^7.0.0 || ^8.0.0', vue: '^3.5.0', 'vue-router': '^5.0.0' },
+    };
+    expect(mod.peerGapFindings(pkg, lock, 'cms').map((f) => [f.title, f.severity])).toEqual([
+      ['dependency peer gap: vite admits untested 7.x (cms)', 'low'],
+      ['dependency peer gap: vue range excludes the tested version (cms)', 'medium'],
+    ]);
   });
 });
