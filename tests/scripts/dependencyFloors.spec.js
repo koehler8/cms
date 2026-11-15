@@ -390,6 +390,7 @@ describe('in-range dependency refresh (week of 2026-11-09)', () => {
     vitest: { floor: '5.1.0', field: 'devDependencies' },
     '@vitest/coverage-v8': { floor: '5.1.0', field: 'devDependencies' },
     '@vitejs/plugin-vue': { floor: '6.0.11', field: 'devDependencies' },
+    '@vue/test-utils': { floor: '2.6.0', field: 'devDependencies' },
     'happy-dom': { floor: '20.14.6', field: 'devDependencies' },
   };
   const lockedEntry = (name) => lock.packages[`node_modules/${name}`];
