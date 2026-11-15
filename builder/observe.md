@@ -36,18 +36,36 @@
    cause (reproduces from the clone / the published beta, not the site's own config), file the
    **framework** defect, and do not enumerate per-site symptoms here.
 
-5. **The dependency scanner — `builder/scanners/dependencies.mjs`** (runs in the clone; its one
-   network read is `npm audit --json --package-lock-only`; it writes nothing):
-   - Security advisories in cms's **runtime** dependency tree, the packages every consumer
-     installs with the framework. A runtime advisory is a framework defect (priority 4), filed
-     once here rather than on every site. Dev-only advisories are silent.
-   - Peer-range gaps: a `peerDependencies` range that does not admit the devDependency version
-     cms is tested against, or whose floor admits a major cms never tests. Minor or patch
-     spread under the floor is not a gap.
-   - A "dependency scanner blind" finding means the lockfile or the audit could not be read —
-     treat that source as unread, never as clean.
-   - An advisory with no fixed release is accepted only in `builder/dependency-holds.json`,
-     with a reason; an invalid hold silences nothing and files its own finding.
+5. **The dependency scanners — `builder/scanners/dependencies.mjs` and
+   `builder/scanners/peer-ranges.mjs`** (both run in the clone and write nothing):
+   - `dependencies.mjs` is buildmill's standard dependency scanner, carried byte for byte. Its
+     network reads are `npm audit --json --package-lock-only` and `npm view <pkg> versions
+     --json`. It files:
+     - `dependency advisory:` — a security advisory anywhere in the lockfile. A critical or
+       high advisory is high in the runtime tree (the packages every consumer installs with
+       the framework) and medium in the dev-only tree; moderate is low, low is info. A
+       runtime advisory is a framework defect (priority 4), filed once here rather than on
+       every site.
+     - `dependency update:` (info) — a newer stable release inside the installed major of a
+       direct dependency, and `dependency major behind:` (low) — one or more majors behind.
+       The dev dependencies are the versions every consumer site is tested against, so these
+       stand as the scanner files them.
+     - `dependency holds invalid:` — an entry in `builder/dependency-holds.json` without a
+       package, a range or a reason; an invalid hold silences nothing. A hold with a reason
+       silences updates while the installed version is inside its range, and an advisory
+       only when its GHSA id is in `acceptedAdvisories`.
+     - `dependency scanner blind:` — the lockfile, the audit or the registry could not be read,
+       its negative control failed, or the scan ran out of its time budget. Treat that source
+       as unread, never as clean.
+   - `peer-ranges.mjs` is cms's own peer check; it reads only `package.json` and the lockfile.
+     It files `dependency peer gap: <pkg> range excludes the tested version` (medium) when a
+     `peerDependencies` range does not admit the devDependency version cms is tested against,
+     `dependency peer gap: <pkg> admits untested N.x` (low) when the floor admits a major cms
+     never tests, and `dependency peer range unreadable:` (low) for a range it refuses to
+     guess at. Minor or patch spread under the floor is not a gap. A `peer-range scanner
+     blind:` finding means `package.json` or the lockfile could not be read, or its negative
+     control failed — treat that source as unread, never as clean.
+   - The two scanners share no finding title.
 
 ## Read-only means read-only
 
@@ -59,10 +77,12 @@ executables on this host are exactly the release levers — the publish trigger,
 ## Boundaries
 
 - Defects in the framework only: a broken release, a red main, a beta that breaks consumers, a
-  security advisory in cms's own runtime dependency tree or a peer-range gap, or
-  release-hygiene drift. Feature and refactor ideas are not findings.
-- Dev-only advisories, outdated packages, `npm outdated` lines and bump proposals are not
-  findings.
+  security advisory in cms's own runtime dependency tree or a peer-range gap (and every other
+  finding the two dependency scanners in source 5 file), or release-hygiene drift. Feature and
+  refactor ideas are not findings.
+- A newer release is filed only by the dependency scanner, as its own `dependency update:` or
+  `dependency major behind:` finding at the scanner's severity. The observer's own passes never
+  propose a bump and never file an `npm outdated` line themselves.
 - Prerelease `beta.N` under the `beta` dist-tag and consumer sites on older pins are BY DESIGN —
   never findings.
 - Severity asymmetry: broken publish / red main = high; a stale CHANGELOG line = low.
@@ -71,8 +91,8 @@ executables on this host are exactly the release levers — the publish trigger,
 ## Coverage block
 
 Every run — including a healthy run with zero findings — must close with a coverage block:
-mark each configured source (the clone, the npm registry, GitHub Actions, and the dependency
-scanner in source 5; note when the
+mark each configured source (the clone, the npm registry, GitHub Actions, and both dependency
+scanners in source 5; note when the
 consumer-blast-radius check in source 4 was skipped because no bad beta was suspected) as
 covered, and state the window or through-timestamp this pass inspected. Emit this on every
 run, not only when something is found — reporting a source covered does not require or

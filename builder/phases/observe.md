@@ -35,10 +35,17 @@ Priorities, in order (most-critical first):
    dependency tree — the packages every consumer installs with the framework — is a framework
    defect: file it here, once, not as a symptom on each consuming site. So is a peer-range gap:
    a `peerDependencies` range that does not admit the version cms is developed and tested
-   against, or whose floor admits a major cms never tests. `builder/scanners/dependencies.mjs`
-   reads both (`npm audit` over the lockfile, plus the peer check) and sets the severity: a
-   critical or high runtime advisory is high, moderate is low, low is info. An advisory that
-   exists only in the dev tree never ships to a consumer and is not a finding.
+   against, or whose floor admits a major cms never tests. Two scanners read them, and each
+   finding takes its scanner's severity:
+   - `builder/scanners/dependencies.mjs` (buildmill's standard scanner) files advisories from
+     `npm audit` over the lockfile: a critical or high advisory is high in the runtime tree and
+     medium when it is dev-only; moderate is low, low is info. It also files
+     `dependency update:` (info) and `dependency major behind:` (low) for a direct dependency
+     with a newer stable release; cms's dev dependencies are the versions every consumer site
+     is tested against, so these stand as the scanner files them.
+   - `builder/scanners/peer-ranges.mjs` files the peer gaps: a range that excludes the tested
+     version is medium, a range that admits an untested lower major is low, and a range it
+     cannot read is low.
 
 5. **Release-hygiene drift.** Lower severity: a version bumped without a `CHANGELOG.md` entry, a
    tag with no publish, a publish with no matching `CHANGELOG` header, or `package.json` version
@@ -54,16 +61,18 @@ itself as a high-severity finding.
 Known-benign — never file:
 - **Prerelease `beta.N` versions published under the `beta` dist-tag** (not `latest`) — that is
   the deliberate release model, not a "missing from latest" defect.
-- **Consumer sites lagging behind the current beta** — each site bumps `@koehler8/cms` on its
+- **Consumer sites lagging behind the current beta** — each site upgrades `@koehler8/cms` on its
   own schedule; an old pin is by design, never a finding.
 - **The lru-cache postinstall patch mutating `node_modules/**/lru-cache`** — load-bearing Node-20
   compat, by design.
-- **Outdated packages** — an `npm outdated` line, an available update or a bump proposal is
-  never a finding. A security advisory or a peer-range gap is not "outdated": see priority 4.
+- **Bump proposals from the model's own passes** — the passes never propose a bump and never
+  file an `npm outdated` line themselves. A newer release is filed only as the dependency
+  scanner's own `dependency update:` or `dependency major behind:` finding, at the scanner's
+  severity (priority 4).
 
 Boundaries — defects only; proposals and feature ideas are not findings. Don't re-file what is already
 visible on the repo's Actions tab if a release just happened and Chris is watching it. Severity
-asymmetry: broken publish or red main = high; a dependency defect takes the scanner's severity;
+asymmetry: broken publish or red main = high; a dependency finding takes its scanner's severity;
 a stale CHANGELOG line or a doc drift = low —
 investigate hard, file conservatively. Zero findings on a healthy day is the expected outcome.
 
