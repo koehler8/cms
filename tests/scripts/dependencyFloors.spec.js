@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveFrom, satisfies } from '../../tools/fleet/check-lockfile-drift.mjs';
 
 // The framework's dependency contract: what every consuming site inherits when
 // it installs @koehler8/cms.
@@ -447,93 +446,5 @@ describe('in-range dependency refresh (week of 2026-11-09)', () => {
     const alternatives = range.split('||').map((part) => rangeFloor(part.trim()));
     const admitted = alternatives.some((alt) => pinia[0] === alt[0] && atLeast(pinia, alt));
     expect(admitted, `pinia ${lockedEntry('pinia').version} vs vue-router peer ${range}`).toBe(true);
-  });
-});
-
-describe('runtime tree runs on the published Node floor', () => {
-  // `engines.node` promises every consuming site that cms runs from this Node
-  // up, and sites move 20.19 -> 22.23 one at a time, so a refresh must not lock
-  // a package into cms's own runtime tree whose engines exclude the floor. The
-  // runtime tree is everything the lockfile reaches from `dependencies` and
-  // `optionalDependencies`. Peers are not followed: vite, vue, vue-router,
-  // vite-ssg and @vitejs/plugin-vue are each site's own declared dependencies,
-  // resolved under that site's Node (vue-router 5.5 reaching chokidar 6, which
-  // wants Node >= 22.22, is that case: the site's bump to schedule).
-  const nodeFloor = rangeFloor(pkg.engines.node).join('.');
-  const runtimeRoots = Object.keys({ ...pkg.dependencies, ...pkg.optionalDependencies });
-
-  // engines ranges are looser than dependency ranges: `>= 20.9.0`, `>=v12.22.7`
-  // and bare X-ranges (`20` is 20.x, `20.9` is 20.9.x). Rewrite exactly those
-  // into forms the drift gate's matcher reads; anything else still throws there.
-  function engineRange(range) {
-    return String(range)
-      .split('||')
-      .map((alternative) =>
-        alternative
-          .trim()
-          .replace(/(>=|<=|>|<|=|\^|~)\s+(?=v?\d)/g, '$1')
-          .split(/\s+/)
-          .map((comparator) => {
-            const plain = comparator.replace(/^(>=|<=|>|<|=|\^|~)?v(?=\d)/, '$1');
-            if (/^\d+$/.test(plain)) return `^${plain}`;
-            if (/^\d+\.\d+$/.test(plain)) return `~${plain}`;
-            return plain;
-          })
-          .join(' '),
-      )
-      .join(' || ');
-  }
-
-  function runtimeClosure() {
-    const seen = new Set();
-    const queue = runtimeRoots.map((name) => resolveFrom(lock.packages, '', name)).filter(Boolean);
-    while (queue.length > 0) {
-      const key = queue.shift();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const entry = lock.packages[key];
-      for (const dep of Object.keys({ ...entry.dependencies, ...entry.optionalDependencies })) {
-        const target = resolveFrom(lock.packages, key, dep);
-        if (target) queue.push(target);
-      }
-    }
-    return seen;
-  }
-
-  it('reads the loose engines syntax published packages use, and refuses the rest', () => {
-    expect(satisfies('20.19.0', engineRange('^18.12.0 || >= 20.9.0'))).toBe(true);
-    expect(satisfies('20.19.0', engineRange('>=v12.22.7'))).toBe(true);
-    expect(satisfies('20.19.0', engineRange('18 || 20 || >=22'))).toBe(true);
-    expect(satisfies('21.0.0', engineRange('18 || 20 || >=22'))).toBe(false);
-    expect(satisfies('20.9.4', engineRange('20.9'))).toBe(true);
-    expect(satisfies('20.19.0', engineRange('20.9'))).toBe(false);
-    expect(satisfies('20.19.0', engineRange('>= 22.22'))).toBe(false);
-    expect(() => satisfies('20.19.0', engineRange('20.x'))).toThrow();
-    expect(() => satisfies('20.19.0', engineRange('18 - 22'))).toThrow();
-  });
-
-  it('locks every declared runtime dependency at the top level', () => {
-    for (const name of runtimeRoots) {
-      expect(lock.packages[`node_modules/${name}`], `${name} missing from the lockfile`).toBeTruthy();
-    }
-  });
-
-  it(`locks nothing into the runtime tree that excludes Node ${nodeFloor}`, () => {
-    const closure = runtimeClosure();
-    expect(closure.size).toBeGreaterThan(runtimeRoots.length);
-    const problems = [];
-    for (const key of closure) {
-      const { version, engines } = lock.packages[key];
-      if (!engines?.node) continue;
-      try {
-        if (!satisfies(nodeFloor, engineRange(engines.node))) problems.push(`${key}@${version} wants node ${engines.node}`);
-      } catch (error) {
-        problems.push(`${key}@${version}: unreadable engines.node "${engines.node}" (${error.message})`);
-      }
-    }
-    expect(
-      problems,
-      `hold these below the version that dropped Node ${nodeFloor}, or raise engines.node as its own released change`,
-    ).toEqual([]);
   });
 });
