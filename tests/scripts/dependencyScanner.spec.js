@@ -567,8 +567,11 @@ describe('dependencies scanner — updates', () => {
       audit: report(fastUriVulns()),
       views: { ...NO_NEWER, ajv: ['8.20.0', '8.21.0'], vue: ['3.5.43', '4.0.0'] },
     };
-    const a = runScanner(opts).findings.map((f) => f.title);
-    const b = runScanner(opts).findings.map((f) => f.title);
+    // The template runs `npm audit` and the `npm view` pool concurrently, so the
+    // order findings print in is not stable; dedupe is by title, so the set is
+    // what must be.
+    const a = runScanner(opts).findings.map((f) => f.title).sort();
+    const b = runScanner(opts).findings.map((f) => f.title).sort();
     expect(a.length).toBeGreaterThan(0);
     expect(a).toEqual(b);
     for (const title of a) {
