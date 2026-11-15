@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
@@ -11,35 +11,42 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
-// builder/scanners/dependencies.mjs — the cms observer's dependency scanner.
+// builder/scanners/dependencies.mjs — buildmill's STANDARD dependency scanner,
+// carried byte for byte (the file says so itself: "This file is the onboarding
+// template"). It reports advisories, newer in-major releases ("dependency
+// update:") and newer majors ("dependency major behind:"). The cms-only
+// peer-range check lives in builder/scanners/peer-ranges.mjs and is covered by
+// tests/scripts/peerRanges.spec.js.
 //
-// Most of this spec drives the scanner the way the buildmill runner does: as a
-// subprocess whose cwd is the repo clone, reading a JSON array of
-// { title, detail, severity } from stdout. `npm` is replaced by a stub on PATH
-// that answers `npm audit` with canned reports, so nothing here touches the
-// network and nothing depends on today's lockfile or today's advisories.
+// This spec drives the scanner the way the buildmill runner does: as a
+// subprocess whose cwd is a clone, reading a JSON array of
+// { title, detail, severity, proposedChange } from stdout. The scanner has no
+// exports and runs on import, so a subprocess is the only surface. `npm` is
+// replaced by a stub on PATH that answers `npm audit` and `npm view` with
+// canned data, so nothing here touches the network and nothing depends on
+// today's advisories or today's registry.
 //
-// The pure-function block at the bottom imports the module directly. It relies
-// on two named exports, advisoryFindings and peerGapFindings — see the notes
-// on that block.
+// Whether the file equals buildmill's copy cannot be asserted without the
+// network, so the "template contract" block pins the marker lines instead.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 const SCANNER = path.join(ROOT, 'builder/scanners/dependencies.mjs');
+const HOLDS = path.join(ROOT, 'builder/dependency-holds.json');
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
 
 // ---------------------------------------------------------------- npm stub
 
-// Mimics the parts of npm the scanner might call:
-//   npm audit      canned report (runtime-only when --omit=dev is passed,
-//                  otherwise the full report); exit 1 when it lists vulns,
-//                  like the real thing
-//   npm outdated   a "newer versions exist" report, exit 1 like the real thing
-//   npm view       a version list that always has a newer release
-// STUB_NPM_MODE: ok | garbage | error | hang
+// Mimics the two npm calls the standard scanner makes:
+//   npm audit --json --package-lock-only   canned report from audit.json (exit 1
+//                                          when it lists vulnerabilities, like npm)
+//   npm view --json -- <name> versions     the list under <name> in views.json;
+//                                          a name with no entry is an E404, like
+//                                          a package the registry does not know
+// STUB_NPM_MODE: ok | garbage | error | hang | viewfail
 const NPM_STUB = `#!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
@@ -58,22 +65,25 @@ if (sub === 'audit') {
     process.stdout.write(JSON.stringify({ error: { code: 'ENOAUDIT', summary: 'audit endpoint unreachable' } }));
     process.exit(1);
   } else {
-    const omitDev = args.includes('--omit=dev') || (args.includes('--omit') && args[args.indexOf('--omit') + 1] === 'dev');
-    const file = path.join(dir, omitDev ? 'audit-runtime.json' : 'audit-full.json');
-    const text = fs.readFileSync(file, 'utf8');
+    const text = fs.readFileSync(path.join(dir, 'audit.json'), 'utf8');
     process.stdout.write(text);
     const report = JSON.parse(text);
     process.exit(Object.keys(report.vulnerabilities || {}).length ? 1 : 0);
   }
-} else if (sub === 'outdated') {
-  process.stdout.write(JSON.stringify({
-    vue: { current: '3.5.43', wanted: '3.5.43', latest: '9.9.9' },
-    'fast-uri': { current: '3.1.8', wanted: '3.1.9', latest: '3.1.9' },
-  }));
-  process.exit(1);
 } else if (sub === 'view') {
-  process.stdout.write(JSON.stringify(['1.0.0', '3.5.43', '9.9.9']));
-  process.exit(0);
+  const dash = args.indexOf('--');
+  const name = dash === -1 ? args.filter((a) => !a.startsWith('-'))[1] : args[dash + 1];
+  if (mode === 'viewfail') {
+    process.stdout.write(JSON.stringify({ error: { code: 'ECONNREFUSED', summary: 'registry unreachable' } }));
+    process.exit(1);
+  }
+  const views = JSON.parse(fs.readFileSync(path.join(dir, 'views.json'), 'utf8'));
+  if (Object.prototype.hasOwnProperty.call(views, name)) {
+    process.stdout.write(JSON.stringify(views[name]));
+    process.exit(0);
+  }
+  process.stdout.write(JSON.stringify({ error: { code: 'E404', summary: 'not found' } }));
+  process.exit(1);
 } else {
   process.exit(1);
 }
@@ -87,6 +97,8 @@ const GHSA_HIGH = 'GHSA-h1h1-aaaa-0001';
 const GHSA_MOD2 = 'GHSA-m0m0-bbbb-0002';
 const GHSA_LOW2 = 'GHSA-l0l0-cccc-0003';
 const GHSA_DEV = 'GHSA-d3d3-dddd-0004';
+const GHSA_DEVOPT = 'GHSA-d0d0-eeee-0005';
+const GHSA_DEVMOD = 'GHSA-d1d1-ffff-0006';
 
 function advisory(source, name, ghsa, severity, range, title) {
   return {
@@ -116,8 +128,9 @@ function vuln(name, severity, via, nodes, extra = {}) {
   };
 }
 
-// The shape of today's real finding: fast-uri reached through ajv, with the
-// inheriting `ajv` entry whose `via` is just the string "fast-uri".
+// The shape of the real finding that motivated the first scanner: fast-uri
+// reached through ajv, with the inheriting `ajv` entry whose `via` is just the
+// string "fast-uri".
 const fastUriVulns = () => ({
   'fast-uri': vuln(
     'fast-uri',
@@ -173,10 +186,15 @@ const CMS_LOCK = (pkg = CMS_PACKAGE()) => ({
     'node_modules/rt-mod': lockEntry('1.0.0'),
     'node_modules/rt-low': lockEntry('1.0.0'),
     'node_modules/dev-only': lockEntry('4.0.0', { dev: true }),
+    'node_modules/dev-opt': lockEntry('1.0.0', { devOptional: true }),
     'node_modules/vite': lockEntry('8.3.0', { dev: true, peer: true }),
     'node_modules/vue': lockEntry('3.5.43', { dev: true, peer: true }),
   },
 });
+
+// What the registry "knows" in a default run: nothing newer than installed, so
+// a clean tree stays clean unless a test says otherwise.
+const NO_NEWER = { ajv: ['8.20.0'], vite: ['8.3.0'], vue: ['3.5.43'] };
 
 const tmpDirs = [];
 
@@ -190,36 +208,18 @@ afterEach(() => {
   while (tmpDirs.length) rmSync(tmpDirs.pop(), { recursive: true, force: true });
 });
 
-// Run the scanner in a throwaway "clone". Returns { status, findings, stdout,
-// stderr }. `findings` is the parsed stdout (undefined if it was not JSON).
-function runScanner({
-  pkg = CMS_PACKAGE(),
-  lock = CMS_LOCK(pkg),
-  full = CLEAN_REPORT,
-  runtime = full,
-  holds,
-  mode = 'ok',
-  env = {},
-  timeout = 20000,
-} = {}) {
-  const repo = makeDir('cms-depscan-repo-');
+function stubBin({ audit = CLEAN_REPORT, views = NO_NEWER } = {}) {
   const bin = makeDir('cms-depscan-bin-');
-  if (pkg !== null) writeFileSync(path.join(repo, 'package.json'), JSON.stringify(pkg, null, 2));
-  if (lock !== null) writeFileSync(path.join(repo, 'package-lock.json'), JSON.stringify(lock, null, 2));
-  if (holds !== undefined) {
-    mkdirSync(path.join(repo, 'builder'), { recursive: true });
-    writeFileSync(
-      path.join(repo, 'builder/dependency-holds.json'),
-      typeof holds === 'string' ? holds : JSON.stringify(holds),
-    );
-  }
   writeFileSync(path.join(bin, 'npm'), NPM_STUB);
   chmodSync(path.join(bin, 'npm'), 0o755);
-  writeFileSync(path.join(bin, 'audit-full.json'), JSON.stringify(full));
-  writeFileSync(path.join(bin, 'audit-runtime.json'), JSON.stringify(runtime));
+  writeFileSync(path.join(bin, 'audit.json'), JSON.stringify(audit));
+  writeFileSync(path.join(bin, 'views.json'), JSON.stringify(views));
+  return bin;
+}
 
+function spawnScanner({ cwd, bin, mode = 'ok', env = {}, timeout = 20000 }) {
   const res = spawnSync(process.execPath, [SCANNER], {
-    cwd: repo,
+    cwd,
     encoding: 'utf8',
     timeout,
     env: {
@@ -238,36 +238,172 @@ function runScanner({
   return { status: res.status, findings, stdout: res.stdout, stderr: res.stderr };
 }
 
+// Run the scanner in a throwaway "clone". Returns { status, findings, stdout,
+// stderr }. `findings` is the parsed stdout (undefined if it was not JSON).
+function runScanner({
+  pkg = CMS_PACKAGE(),
+  lock = CMS_LOCK(pkg),
+  audit = CLEAN_REPORT,
+  views = NO_NEWER,
+  holds,
+  mode = 'ok',
+  env = {},
+  timeout = 20000,
+  origin,
+} = {}) {
+  const repo = makeDir('cms-depscan-repo-');
+  if (pkg !== null) writeFileSync(path.join(repo, 'package.json'), JSON.stringify(pkg, null, 2));
+  if (lock !== null) {
+    writeFileSync(
+      path.join(repo, 'package-lock.json'),
+      typeof lock === 'string' ? lock : JSON.stringify(lock, null, 2),
+    );
+  }
+  if (holds !== undefined) {
+    mkdirSync(path.join(repo, 'builder'), { recursive: true });
+    writeFileSync(
+      path.join(repo, 'builder/dependency-holds.json'),
+      typeof holds === 'string' ? holds : JSON.stringify(holds),
+    );
+  }
+  if (origin) {
+    const git = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
+    git('init', '-q');
+    git('remote', 'add', 'origin', origin);
+  }
+  return spawnScanner({ cwd: repo, bin: stubBin({ audit, views }), mode, env, timeout });
+}
+
 const text = (f) => `${f.title}\n${f.detail}`;
 const mentioning = (findings, needle) => findings.filter((f) => text(f).includes(needle));
 const blindFindings = (findings) => findings.filter((f) => /dependency scanner blind/i.test(f.title));
+const titled = (findings, start) => findings.filter((f) => f.title.startsWith(start));
 
-// ------------------------------------------------------------------- the run
+// -------------------------------------------------- the file and its contract
 
-describe('dependencies scanner — runtime-tree advisories', () => {
+describe('dependencies scanner — the standard buildmill template', () => {
+  const source = () => readFileSync(SCANNER, 'utf8');
+
   it('exists where the runner looks for it', () => {
     expect(existsSync(SCANNER)).toBe(true);
   });
 
+  // The equality check against koehler8/buildmill needs the network, so these
+  // marker lines stand in for it: they are what makes the file the template
+  // rather than a cms adaptation of it.
+  it('declares itself the onboarding template, carried byte for byte', () => {
+    expect(source()).toContain('This file is the onboarding template');
+    expect(source()).toContain('DEPENDENCY_SCANNER_TEMPLATE');
+  });
+
+  it('keeps the template-safe subset: no backtick and no dollar-brace sequence', () => {
+    expect(source()).not.toContain('`');
+    expect(source()).not.toContain('${');
+  });
+
+  it('reads holds from builder/dependency-holds.json', () => {
+    expect(source()).toMatch(/HOLDS_FILE\s*=\s*join\(\s*"builder"\s*,\s*"dependency-holds\.json"\s*\)/);
+  });
+
+  it('has no cms-only logic: no peer-range check, no package-name guard, no exports', () => {
+    const src = source();
+    expect(src).not.toMatch(/peer/i);
+    expect(src).not.toContain('@koehler8/cms');
+    expect(src).not.toMatch(/^export\s/m);
+  });
+
+  it('carries the update and major-behind classifiers the template defines', () => {
+    const src = source();
+    expect(src).toContain('dependency update: ');
+    expect(src).toContain('dependency major behind: ');
+    expect(src).toContain('dependency scanner blind: ');
+    expect(src).toContain('dependency holds invalid: ');
+    expect(src).toContain('dependency advisory: ');
+  });
+});
+
+describe('builder/dependency-holds.json', () => {
+  it('exists and is a JSON array; every entry carries package, range and reason', () => {
+    expect(existsSync(HOLDS)).toBe(true);
+    const holds = JSON.parse(readFileSync(HOLDS, 'utf8'));
+    expect(Array.isArray(holds)).toBe(true);
+    for (const h of holds) {
+      expect(typeof h.package).toBe('string');
+      expect(typeof h.range).toBe('string');
+      expect(typeof h.reason).toBe('string');
+      expect(h.reason.trim().length).toBeGreaterThan(0);
+    }
+  });
+});
+
+// --------------------------------------------------------------- this repo
+
+describe('dependencies scanner — on this repo', () => {
+  // The real package.json, lockfile and holds file, with npm stubbed so the
+  // run is hermetic. This is the done-when check: a JSON array, every title
+  // ending (cms), no blind and no holds-invalid finding.
+  const realRoot = (views, audit = CLEAN_REPORT) =>
+    spawnScanner({ cwd: ROOT, bin: stubBin({ audit, views }) });
+
+  const lockPackages = () => JSON.parse(readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8')).packages;
+  const rootPackage = () => JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+
+  it('prints a JSON array, exits 0, every title ends (cms), and is not blind or holds-invalid', () => {
+    const { status, findings, stderr } = realRoot({});
+    expect(status).toBe(0);
+    expect(Array.isArray(findings), `stdout was not a JSON array. stderr: ${stderr}`).toBe(true);
+    expect(blindFindings(findings)).toEqual([]);
+    expect(findings.filter((f) => /dependency holds invalid/i.test(f.title))).toEqual([]);
+    for (const f of findings) expect(f.title).toMatch(/\(cms\)$/);
+  });
+
+  it('files a "dependency update:" finding when the registry offers a newer in-major release of a direct dependency', () => {
+    const lock = lockPackages();
+    const pkg = rootPackage();
+    const name = Object.keys(pkg.dependencies || {}).find((n) => {
+      const v = (lock[`node_modules/${n}`] || {}).version;
+      return typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v);
+    });
+    expect(name, 'no plain-versioned direct dependency to probe with').toBeTruthy();
+    const [major, minor, patch] = lock[`node_modules/${name}`].version.split('.').map(Number);
+    const newer = `${major}.${minor}.${patch + 1000}`;
+
+    const { findings } = realRoot({ [name]: [lock[`node_modules/${name}`].version, newer] });
+    const hit = findings.filter((f) => f.title === `dependency update: ${name} (cms)`);
+    expect(hit).toHaveLength(1);
+    expect(hit[0].severity).toBe('info');
+    expect(hit[0].detail).toContain(newer);
+    expect(blindFindings(findings)).toEqual([]);
+  });
+
+  it('files nothing about peerDependencies: the peer-range check is not in this scanner', () => {
+    const { findings } = realRoot({});
+    expect(findings.filter((f) => /peer/i.test(f.title))).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------- the run
+
+describe('dependencies scanner — runtime and dev-tree advisories', () => {
   it('reports a runtime advisory (fast-uri via ajv) with its advisory ids, and exits 0', () => {
-    const vulnerabilities = fastUriVulns();
-    const { status, findings, stderr } = runScanner({ full: report(vulnerabilities) });
+    const { status, findings, stderr } = runScanner({ audit: report(fastUriVulns()) });
 
     expect(status).toBe(0);
     expect(Array.isArray(findings), `stdout was not a JSON array. stderr: ${stderr}`).toBe(true);
 
     const fastUri = findings.filter((f) => f.title.includes('fast-uri'));
     expect(fastUri.length).toBeGreaterThanOrEqual(1);
-    // both advisory ids are visible somewhere in the fast-uri findings
     const combined = fastUri.map(text).join('\n');
     expect(combined).toContain(GHSA_MODERATE);
     expect(combined).toContain(GHSA_LOW);
-    // the installed version is named so the reader can tell what to bump
     expect(combined).toContain('3.1.8');
   });
 
   it('keeps the {title, detail, severity} contract on every finding', () => {
-    const { findings } = runScanner({ full: report(fastUriVulns()) });
+    const { findings } = runScanner({
+      audit: report(fastUriVulns()),
+      views: { ...NO_NEWER, vue: ['3.5.43', '4.0.0'] },
+    });
     expect(findings.length).toBeGreaterThan(0);
     for (const f of findings) {
       expect(typeof f.title).toBe('string');
@@ -279,33 +415,23 @@ describe('dependencies scanner — runtime-tree advisories', () => {
   });
 
   it('does not file a second finding for a package that merely inherits the advisory (ajv → fast-uri)', () => {
-    const { findings } = runScanner({ full: report(fastUriVulns()) });
-    // ajv is only affected through fast-uri; the finding belongs to fast-uri
-    expect(findings.filter((f) => f.title.includes('ajv'))).toEqual([]);
+    const { findings } = runScanner({ audit: report(fastUriVulns()) });
+    expect(titled(findings, 'dependency advisory:').filter((f) => f.title.includes('ajv'))).toEqual([]);
   });
 
   it('maps advisory level to severity: high → high, moderate → low, low → info', () => {
     const vulnerabilities = {
-      'rt-high': vuln(
-        'rt-high',
-        'high',
-        [advisory(10, 'rt-high', GHSA_HIGH, 'high', '<2.0.1', 'rt-high bad')],
-        ['node_modules/rt-high'],
-      ),
-      'rt-mod': vuln(
-        'rt-mod',
-        'moderate',
-        [advisory(11, 'rt-mod', GHSA_MOD2, 'moderate', '<1.0.1', 'rt-mod bad')],
-        ['node_modules/rt-mod'],
-      ),
-      'rt-low': vuln(
-        'rt-low',
-        'low',
-        [advisory(12, 'rt-low', GHSA_LOW2, 'low', '<1.0.1', 'rt-low bad')],
-        ['node_modules/rt-low'],
-      ),
+      'rt-high': vuln('rt-high', 'high', [advisory(10, 'rt-high', GHSA_HIGH, 'high', '<2.0.1', 'rt-high bad')], [
+        'node_modules/rt-high',
+      ]),
+      'rt-mod': vuln('rt-mod', 'moderate', [advisory(11, 'rt-mod', GHSA_MOD2, 'moderate', '<1.0.1', 'rt-mod bad')], [
+        'node_modules/rt-mod',
+      ]),
+      'rt-low': vuln('rt-low', 'low', [advisory(12, 'rt-low', GHSA_LOW2, 'low', '<1.0.1', 'rt-low bad')], [
+        'node_modules/rt-low',
+      ]),
     };
-    const { findings } = runScanner({ full: report(vulnerabilities) });
+    const { findings } = runScanner({ audit: report(vulnerabilities) });
 
     const sev = (needle) => {
       const hit = mentioning(findings, needle);
@@ -317,8 +443,130 @@ describe('dependencies scanner — runtime-tree advisories', () => {
     expect(sev('rt-low')).toBe('info');
   });
 
+  it('files a critical/high advisory that exists only in the dev tree as medium, naming the dev-only tree', () => {
+    const devOnly = {
+      'dev-only': vuln('dev-only', 'high', [advisory(20, 'dev-only', GHSA_DEV, 'high', '<4.0.1', 'dev-only bad')], [
+        'node_modules/dev-only',
+      ]),
+    };
+    const { findings } = runScanner({ audit: report(devOnly) });
+    const hit = mentioning(findings, GHSA_DEV);
+    expect(hit).toHaveLength(1);
+    expect(hit[0].severity).toBe('medium');
+    expect(hit[0].detail).toMatch(/dev-only tree/);
+  });
+
+  it('keeps a moderate dev-only advisory at low, not medium', () => {
+    const devMod = {
+      'dev-only': vuln('dev-only', 'moderate', [advisory(21, 'dev-only', GHSA_DEVMOD, 'moderate', '<4.0.1', 'dev-only meh')], [
+        'node_modules/dev-only',
+      ]),
+    };
+    const { findings } = runScanner({ audit: report(devMod) });
+    const hit = mentioning(findings, GHSA_DEVMOD);
+    expect(hit).toHaveLength(1);
+    expect(hit[0].severity).toBe('low');
+  });
+
+  it('treats a devOptional package as runtime: a critical/high advisory there is high', () => {
+    const devOpt = {
+      'dev-opt': vuln('dev-opt', 'critical', [advisory(22, 'dev-opt', GHSA_DEVOPT, 'critical', '<1.0.1', 'dev-opt bad')], [
+        'node_modules/dev-opt',
+      ]),
+    };
+    const { findings } = runScanner({ audit: report(devOpt) });
+    const hit = mentioning(findings, GHSA_DEVOPT);
+    expect(hit).toHaveLength(1);
+    expect(hit[0].severity).toBe('high');
+  });
+
+  it('files the runtime advisory and the dev-only one side by side, each at its own severity', () => {
+    const devOnly = {
+      'dev-only': vuln('dev-only', 'high', [advisory(20, 'dev-only', GHSA_DEV, 'high', '<4.0.1', 'dev-only bad')], [
+        'node_modules/dev-only',
+      ]),
+    };
+    const { findings } = runScanner({ audit: report({ ...fastUriVulns(), ...devOnly }) });
+    expect(mentioning(findings, GHSA_MODERATE)[0].severity).toBe('low');
+    expect(mentioning(findings, GHSA_DEV)[0].severity).toBe('medium');
+  });
+
+  it('never proposes a version below the installed one', () => {
+    const downgrade = {
+      'rt-high': vuln(
+        'rt-high',
+        'high',
+        [advisory(10, 'rt-high', GHSA_HIGH, 'high', '<2.0.1', 'rt-high bad')],
+        ['node_modules/rt-high'],
+        { fixAvailable: { name: 'rt-high', version: '1.0.0', isSemVerMajor: true } },
+      ),
+    };
+    const { findings } = runScanner({ audit: report(downgrade) });
+    const hit = mentioning(findings, GHSA_HIGH);
+    expect(hit).toHaveLength(1);
+    expect(hit[0].proposedChange).toMatch(/no non-downgrade fix/i);
+    expect(hit[0].proposedChange).not.toContain('1.0.0');
+  });
+
+  it('prints [] and exits 0 for a tree with no advisories and nothing newer on the registry', () => {
+    const { status, findings, stdout } = runScanner();
+    expect(status).toBe(0);
+    expect(findings).toEqual([]);
+    expect(stdout.trim()).toBe('[]');
+  });
+});
+
+describe('dependencies scanner — updates', () => {
+  it('files "dependency update: <pkg> (cms)" as info for a newer release inside the installed major', () => {
+    const { status, findings } = runScanner({ views: { ...NO_NEWER, ajv: ['8.20.0', '8.21.0', '8.22.3'] } });
+    expect(status).toBe(0);
+    const hit = titled(findings, 'dependency update:');
+    expect(hit).toHaveLength(1);
+    expect(hit[0].title).toBe('dependency update: ajv (cms)');
+    expect(hit[0].severity).toBe('info');
+    // the target is the highest stable release, and the finding names where to bump it
+    expect(hit[0].detail).toContain('8.22.3');
+    expect(hit[0].detail).toContain('package.json');
+    expect(hit[0].proposedChange).toContain('8.22.3');
+  });
+
+  it('files "dependency major behind: <pkg> N.x → M.x (cms)" as low when a newer major exists', () => {
+    const { findings } = runScanner({ views: { ...NO_NEWER, vue: ['3.5.43', '4.0.0', '4.1.2'] } });
+    const hit = titled(findings, 'dependency major behind:');
+    expect(hit).toHaveLength(1);
+    expect(hit[0].title).toBe('dependency major behind: vue 3.x → 4.x (cms)');
+    expect(hit[0].severity).toBe('low');
+    expect(hit[0].detail).toContain('4.1.2');
+  });
+
+  it('never targets a prerelease, and never proposes a version below the installed one', () => {
+    const { findings } = runScanner({
+      views: { ...NO_NEWER, vue: ['3.4.0', '3.5.43', '4.0.0-beta.1'], vite: ['7.0.0', '8.3.0', '8.4.0-rc.1'] },
+    });
+    expect(titled(findings, 'dependency')).toEqual([]);
+  });
+
+  it('files no update for a package the registry does not know (E404, a private package)', () => {
+    const { status, findings } = runScanner({ views: {} });
+    expect(status).toBe(0);
+    expect(findings).toEqual([]);
+  });
+
+  it('reads direct dependencies from every dependency field of the root package.json', () => {
+    const { findings } = runScanner({
+      views: { ajv: ['8.20.0'], vite: ['8.3.0', '8.3.9'], vue: ['3.5.43', '3.5.99'] },
+    });
+    expect(titled(findings, 'dependency update:').map((f) => f.title).sort()).toEqual([
+      'dependency update: vite (cms)',
+      'dependency update: vue (cms)',
+    ]);
+  });
+
   it('uses stable titles: no dates, and identical across two runs of the same tree', () => {
-    const opts = { full: report(fastUriVulns()) };
+    const opts = {
+      audit: report(fastUriVulns()),
+      views: { ...NO_NEWER, ajv: ['8.20.0', '8.21.0'], vue: ['3.5.43', '4.0.0'] },
+    };
     const a = runScanner(opts).findings.map((f) => f.title);
     const b = runScanner(opts).findings.map((f) => f.title);
     expect(a.length).toBeGreaterThan(0);
@@ -328,139 +576,38 @@ describe('dependencies scanner — runtime-tree advisories', () => {
       expect(title).not.toMatch(/\b\d+ (advisor|vulnerabilit|finding|package)/i);
     }
   });
-
-  it('prints [] and exits 0 for a tree with no advisories and satisfied peer ranges', () => {
-    const { status, findings, stdout } = runScanner();
-    expect(status).toBe(0);
-    expect(findings).toEqual([]);
-    expect(stdout.trim()).toBe('[]');
-  });
 });
 
-describe('dependencies scanner — what must NOT become a finding', () => {
-  // The runtime-only report is what `npm audit --omit=dev` returns; the full
-  // report is what a plain `npm audit` returns. The scanner may use either
-  // strategy (omit-dev, or split by the lockfile's dev flags) — both must
-  // leave dev-only advisories out.
-  const devOnlyVuln = {
-    'dev-only': vuln(
-      'dev-only',
-      'high',
-      [advisory(20, 'dev-only', GHSA_DEV, 'high', '<4.0.1', 'dev-only bad')],
-      ['node_modules/dev-only'],
-    ),
-  };
-
-  it('files nothing for an advisory that exists only in the dev tree', () => {
-    const { findings } = runScanner({ full: report(devOnlyVuln), runtime: CLEAN_REPORT });
-    expect(findings).toEqual([]);
-  });
-
-  it('still files the runtime advisory when a dev-only one sits beside it', () => {
+describe('dependencies scanner — names the repo from git origin', () => {
+  it('uses the last path segment of origin, so every title ends with that repo', () => {
     const { findings } = runScanner({
-      full: report({ ...fastUriVulns(), ...devOnlyVuln }),
-      runtime: report(fastUriVulns()),
+      origin: 'https://github.com/koehler8/site-example.git',
+      audit: report(fastUriVulns()),
+      views: { ...NO_NEWER, vue: ['3.5.43', '3.5.44'] },
     });
-    expect(mentioning(findings, 'fast-uri').length).toBeGreaterThanOrEqual(1);
-    expect(mentioning(findings, 'dev-only')).toEqual([]);
-    expect(mentioning(findings, GHSA_DEV)).toEqual([]);
+    expect(findings.length).toBeGreaterThan(0);
+    for (const f of findings) expect(f.title).toMatch(/\(site-example\)$/);
   });
 
-  it('files nothing for outdated packages, even when the registry offers newer releases', () => {
-    // The stub answers `npm outdated` and `npm view` with newer versions of
-    // vue and fast-uri. A clean audit must still produce a clean sweep.
-    const { status, findings } = runScanner();
-    expect(status).toBe(0);
-    expect(findings).toEqual([]);
+  it('falls back to the package name when there is no origin: @koehler8/cms → cms', () => {
+    const { findings } = runScanner({ audit: report(fastUriVulns()) });
+    expect(findings.length).toBeGreaterThan(0);
+    for (const f of findings) expect(f.title).toMatch(/\(cms\)$/);
+  });
+
+  it('does not speak only for cms: a package with another name is scanned too', () => {
+    const pkg = { ...CMS_PACKAGE(), name: 'site-example' };
+    const { findings } = runScanner({ pkg, audit: report(fastUriVulns()) });
+    expect(mentioning(findings, GHSA_MODERATE).length).toBeGreaterThanOrEqual(1);
   });
 });
 
-describe('dependencies scanner — peer-dependency gap', () => {
-  const withPeers = ({ peers, dev, locked }) => {
-    const pkg = {
-      name: '@koehler8/cms',
-      version: '1.4.2',
-      dependencies: {},
-      devDependencies: dev,
-      peerDependencies: peers,
-    };
-    const lock = CMS_LOCK(pkg);
-    for (const key of Object.keys(lock.packages)) {
-      if (key !== '' && !key.endsWith('/ajv') && !key.endsWith('/fast-uri')) delete lock.packages[key];
-    }
-    for (const [name, version] of Object.entries(locked)) {
-      lock.packages[`node_modules/${name}`] = lockEntry(version, { dev: true, peer: true });
-    }
-    return { pkg, lock };
-  };
-
-  it('files nothing for minor/patch floor spread (vite ^8.0.0 vs 8.3.0, vue ^3.5.0 vs 3.5.43)', () => {
-    const { findings } = runScanner(
-      withPeers({
-        peers: { vite: '^8.0.0', vue: '^3.5.0' },
-        dev: { vite: '^8.3.0', vue: '^3.5.43' },
-        locked: { vite: '8.3.0', vue: '3.5.43' },
-      }),
-    );
-    expect(findings).toEqual([]);
-  });
-
-  it('files a finding when the installed dev version does not satisfy the peer range', () => {
-    const { findings } = runScanner(
-      withPeers({
-        peers: { vite: '^8.0.0', vue: '^3.5.0' },
-        dev: { vite: '^8.3.0', vue: '^3.4.0' },
-        locked: { vite: '8.3.0', vue: '3.4.9' },
-      }),
-    );
-    expect(findings).toHaveLength(1);
-    expect(findings[0].title).toContain('vue');
-    expect(text(findings[0])).toContain('3.4.9');
-    expect(SEVERITIES).toContain(findings[0].severity);
-  });
-
-  it("files a finding when the peer range's lowest major is below the installed dev major", () => {
-    const { findings } = runScanner(
-      withPeers({
-        peers: { vite: '^7.0.0 || ^8.0.0', vue: '^3.5.0' },
-        dev: { vite: '^8.3.0', vue: '^3.5.43' },
-        locked: { vite: '8.3.0', vue: '3.5.43' },
-      }),
-    );
-    expect(findings).toHaveLength(1);
-    expect(findings[0].title).toContain('vite');
-    expect(text(findings[0])).toMatch(/7/);
-    expect(text(findings[0])).toContain('8.3.0');
-  });
-
-  it('treats an open-ended floor (>=7) under an 8.x dev install as an older-major gap too', () => {
-    const { findings } = runScanner(
-      withPeers({
-        peers: { vite: '>=7.0.0' },
-        dev: { vite: '^8.3.0' },
-        locked: { vite: '8.3.0' },
-      }),
-    );
-    expect(findings).toHaveLength(1);
-    expect(findings[0].title).toContain('vite');
-  });
-
-  it('ignores a peer dependency that has no matching devDependency to compare against', () => {
-    const { findings } = runScanner(
-      withPeers({
-        peers: { 'some-peer': '^1.0.0', vue: '^3.5.0' },
-        dev: { vue: '^3.5.43' },
-        locked: { vue: '3.5.43' },
-      }),
-    );
-    expect(findings).toEqual([]);
-  });
-
-  it('files nothing when package.json declares no peerDependencies', () => {
-    const { pkg, lock } = withPeers({ peers: {}, dev: { vue: '^3.5.43' }, locked: { vue: '3.5.43' } });
-    delete pkg.peerDependencies;
-    const { status, findings } = runScanner({ pkg, lock });
-    expect(status).toBe(0);
+describe('dependencies scanner — no peer-range finding of any kind', () => {
+  it('files nothing about a peer range that excludes the tested version, or admits an older major', () => {
+    const pkg = CMS_PACKAGE();
+    pkg.peerDependencies = { vite: '^7.0.0', vue: '^3.4.0 || ^2.0.0' };
+    const { findings } = runScanner({ pkg });
+    expect(findings.filter((f) => /peer/i.test(f.title))).toEqual([]);
     expect(findings).toEqual([]);
   });
 });
@@ -474,6 +621,7 @@ describe('dependencies scanner — never silently blind', () => {
     expect(blind.length).toBeGreaterThanOrEqual(1);
     expect(blind[0].severity).toBe('medium');
     expect(blind[0].detail.length).toBeGreaterThan(0);
+    expect(blind[0].title).toMatch(/^dependency scanner blind: .+ \(cms\)$/);
     return blind;
   };
 
@@ -493,6 +641,10 @@ describe('dependencies scanner — never silently blind', () => {
     expectBlind(runScanner({ mode: 'error' }));
   });
 
+  it('files a blind finding when the registry cannot be read, instead of assuming nothing is outdated', () => {
+    expectBlind(runScanner({ mode: 'viewfail' }));
+  });
+
   it('files a blind finding when the time budget runs out, instead of printing []', () => {
     const run = runScanner({
       mode: 'hang',
@@ -507,29 +659,21 @@ describe('dependencies scanner — never silently blind', () => {
     const b = blindFindings(runScanner({ lock: null }).findings).map((f) => f.title);
     expect(a).toEqual(b);
     expect(a.join('\n')).not.toMatch(/\b\d{4}-\d{2}-\d{2}\b/);
-  });
-});
-
-describe('dependencies scanner — only speaks for @koehler8/cms', () => {
-  it('stays silent ([]) in a clone whose package.json is not @koehler8/cms, even with advisories present', () => {
-    const pkg = { ...CMS_PACKAGE(), name: 'site-example' };
-    const { status, findings } = runScanner({ pkg, full: report(fastUriVulns()) });
-    expect(status).toBe(0);
-    expect(findings).toEqual([]);
+    const bad = blindFindings(runScanner({ lock: '{ not json' }).findings).map((f) => f.title);
+    expect(bad).not.toEqual(a);
   });
 
-  it('stays silent in a non-cms clone with no lockfile (silent, not blind)', () => {
-    const pkg = { ...CMS_PACKAGE(), name: 'site-example' };
-    const { status, findings } = runScanner({ pkg, lock: null });
-    expect(status).toBe(0);
-    expect(findings).toEqual([]);
+  it('does not emit a peer-range blind title: that title belongs to peer-ranges.mjs', () => {
+    for (const run of [runScanner({ lock: null }), runScanner({ lock: '{ not json' }), runScanner({ mode: 'garbage' })]) {
+      expect(run.findings.filter((f) => /peer-range scanner blind/i.test(f.title))).toEqual([]);
+    }
   });
 });
 
 describe('dependencies scanner — builder/dependency-holds.json', () => {
   it('silences an advisory whose GHSA id is accepted, but still files the others on that package', () => {
     const { findings } = runScanner({
-      full: report(fastUriVulns()),
+      audit: report(fastUriVulns()),
       holds: [
         {
           package: 'fast-uri',
@@ -544,97 +688,52 @@ describe('dependencies scanner — builder/dependency-holds.json', () => {
     expect(combined).toContain(GHSA_LOW);
   });
 
-  it('honours no hold that lacks a reason, and says so', () => {
+  it('files no update finding for a held package while the installed version is inside the hold range', () => {
+    const views = { ...NO_NEWER, vue: ['3.5.43', '3.5.44', '4.0.0'], ajv: ['8.20.0', '8.21.0'] };
     const { findings } = runScanner({
-      full: report(fastUriVulns()),
+      views,
+      holds: [{ package: 'vue', range: '3.x', reason: 'peer-linked to the framework floor' }],
+    });
+    expect(findings.filter((f) => f.title.includes(' vue '))).toEqual([]);
+    expect(findings.filter((f) => f.title.includes(': vue'))).toEqual([]);
+    // the hold is per package: ajv still files
+    expect(titled(findings, 'dependency update: ajv')).toHaveLength(1);
+  });
+
+  it('stops holding once the installed version leaves the hold range', () => {
+    const { findings } = runScanner({
+      views: { ...NO_NEWER, vue: ['3.5.43', '3.5.44'] },
+      holds: [{ package: 'vue', range: '2.x', reason: 'wrong major' }],
+    });
+    expect(titled(findings, 'dependency update: vue')).toHaveLength(1);
+  });
+
+  it('honours no hold that lacks a reason, says so, and still files the finding it tried to silence', () => {
+    const { findings } = runScanner({
+      audit: report(fastUriVulns()),
       holds: [{ package: 'fast-uri', range: '3.x', acceptedAdvisories: [GHSA_MODERATE] }],
     });
     const combined = findings.filter((f) => f.title.includes('fast-uri')).map(text).join('\n');
     expect(combined).toContain(GHSA_MODERATE);
-    expect(findings.some((f) => /hold/i.test(f.title) && /invalid/i.test(f.title))).toBe(true);
-  });
-});
-
-// ----------------------------------------------------------- pure functions
-//
-// Seam this block depends on (named in the test-writer summary for the plan):
-// builder/scanners/dependencies.mjs exports, behind a main-module guard so that
-// importing it neither scans nor writes to stdout,
-//
-//   advisoryFindings(auditReport, lockPackages, holds, repoName) → finding[]
-//       npm audit --json (v2) report + the lockfile's `packages` map; `holds`
-//       is the parsed holds list ([] for none). Runtime-tree advisories only.
-//   peerGapFindings(packageJson, lockPackages, repoName) → finding[]
-//
-// Both return arrays of { title, detail, severity }.
-describe('dependencies scanner — pure functions', () => {
-  async function load() {
-    const writes = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    try {
-      const mod = await import(/* @vite-ignore */ pathToFileURL(SCANNER).href);
-      return { mod, writes: writes.mock.calls.length };
-    } finally {
-      writes.mockRestore();
-    }
-  }
-
-  it('can be imported without running a scan (main-module guard)', async () => {
-    const { writes } = await load();
-    expect(writes).toBe(0);
+    const invalid = findings.filter((f) => /^dependency holds invalid: /.test(f.title));
+    expect(invalid).toHaveLength(1);
+    expect(invalid[0].severity).toBe('medium');
+    expect(invalid[0].title).toMatch(/\(cms\)$/);
   });
 
-  it('exports the advisory classifier and the peer-gap check', async () => {
-    const { mod } = await load();
-    expect(typeof mod.advisoryFindings).toBe('function');
-    expect(typeof mod.peerGapFindings).toBe('function');
+  it('files "dependency holds invalid" when the holds file does not parse, and silences nothing', () => {
+    const { findings } = runScanner({
+      holds: '{ not json',
+      views: { ...NO_NEWER, vue: ['3.5.43', '3.5.44'] },
+    });
+    expect(findings.filter((f) => /^dependency holds invalid: /.test(f.title))).toHaveLength(1);
+    expect(titled(findings, 'dependency update: vue')).toHaveLength(1);
   });
 
-  it('advisoryFindings: classifies runtime advisories and drops dev-only ones by the lockfile flags', async () => {
-    const { mod } = await load();
-    const lockPackages = CMS_LOCK().packages;
-    const found = mod.advisoryFindings(
-      report({
-        ...fastUriVulns(),
-        'dev-only': vuln(
-          'dev-only',
-          'high',
-          [advisory(20, 'dev-only', GHSA_DEV, 'high', '<4.0.1', 'dev-only bad')],
-          ['node_modules/dev-only'],
-        ),
-      }),
-      lockPackages,
-      [],
-      'cms',
-    );
-    const combined = found.map(text).join('\n');
-    expect(combined).toContain(GHSA_MODERATE);
-    expect(combined).toContain(GHSA_LOW);
-    expect(combined).not.toContain(GHSA_DEV);
-    expect(found.find((f) => text(f).includes(GHSA_MODERATE)).severity).toBe('low');
-    expect(found.find((f) => text(f).includes(GHSA_LOW)).severity).toBe('info');
-  });
-
-  it('advisoryFindings: a clean report is []', async () => {
-    const { mod } = await load();
-    expect(mod.advisoryFindings(CLEAN_REPORT, CMS_LOCK().packages, [], 'cms')).toEqual([]);
-  });
-
-  it('peerGapFindings: unsatisfied → finding, older peer-floor major → finding, minor spread → none', async () => {
-    const { mod } = await load();
-    const lock = {
-      'node_modules/vite': lockEntry('8.3.0', { dev: true }),
-      'node_modules/vue': lockEntry('3.4.9', { dev: true }),
-      'node_modules/vue-router': lockEntry('5.3.1', { dev: true }),
-    };
-    const pkg = {
-      name: '@koehler8/cms',
-      devDependencies: { vite: '^8.3.0', vue: '^3.4.0', 'vue-router': '^5.3.0' },
-      peerDependencies: { vite: '^7.0.0 || ^8.0.0', vue: '^3.5.0', 'vue-router': '^5.0.0' },
-    };
-    const found = mod.peerGapFindings(pkg, lock, 'cms');
-    expect(found.filter((f) => f.title.includes('vite'))).toHaveLength(1);
-    expect(found.filter((f) => f.title.includes('vue') && !f.title.includes('vue-router'))).toHaveLength(1);
-    expect(found.filter((f) => f.title.includes('vue-router'))).toEqual([]);
+  it('an empty holds file ([]) is valid and files nothing of its own', () => {
+    const { status, findings } = runScanner({ holds: [] });
+    expect(status).toBe(0);
+    expect(findings).toEqual([]);
   });
 });
 
@@ -653,9 +752,38 @@ describe('observer policy text', () => {
     const next = rest.search(/ ## /);
     return next === -1 ? rest : rest.slice(0, next);
   };
+  const between = (md, from, to) => {
+    const start = md.indexOf(from);
+    if (start === -1) return '';
+    const rest = md.slice(start);
+    const end = rest.indexOf(to);
+    return end === -1 ? rest : rest.slice(0, end);
+  };
+  const sentences = (md) => md.split(/(?<=[.!?])\s+/);
 
   const brief = () => read('builder/phases/observe.md');
   const facet = () => read('builder/observe.md');
+  const priority4 = () => between(brief(), '4. **Dependency', '5. **Release');
+  const source5 = () => {
+    const md = facet();
+    const start = md.search(/\b5\. \*\*[^*]*dependenc/i);
+    if (start === -1) return '';
+    const rest = md.slice(start);
+    const end = rest.indexOf('## Read-only');
+    return end === -1 ? rest : rest.slice(0, end);
+  };
+
+  // A sentence that says an outdated package / npm outdated line / bump is
+  // "never a finding" without saying whose finding. Scanner-attributed or
+  // pass-attributed sentences are the rewritten rule and are allowed.
+  const flatOutdatedExclusions = (md) =>
+    sentences(md).filter(
+      (s) =>
+        /outdated|bump/i.test(s) &&
+        /\b(never|not)\b/i.test(s) &&
+        /finding/i.test(s) &&
+        !/scanner|dependency update|major behind|own pass|passes|model/i.test(s),
+    );
 
   it('builder/phases/observe.md no longer lists "dependency findings" as never-file', () => {
     expect(brief()).not.toMatch(/dependency findings\W+[^.]*never file/i);
@@ -665,13 +793,33 @@ describe('observer policy text', () => {
     expect(brief()).toMatch(/advisor[^.]*runtime|runtime[^.]*advisor/i);
   });
 
-  it('builder/phases/observe.md names peer-range gaps as framework defects too', () => {
-    expect(brief()).toMatch(/peer/i);
+  it('builder/phases/observe.md priority 4 attributes advisories to dependencies.mjs and peer gaps to peer-ranges.mjs', () => {
+    const p4 = priority4();
+    expect(p4.length, 'priority 4 (Dependency defects) not found').toBeGreaterThan(0);
+    expect(p4).toContain('builder/scanners/dependencies.mjs');
+    expect(p4).toContain('builder/scanners/peer-ranges.mjs');
+    expect(p4).toMatch(/peer-ranges\.mjs[^.]*peer|peer[^.]*peer-ranges\.mjs/i);
   });
 
-  it('builder/phases/observe.md still says outdated packages / npm outdated / bump proposals are not findings', () => {
-    expect(brief()).toMatch(/npm outdated/i);
-    expect(brief()).toMatch(/outdated[^.]*(never|not)[^.]*(finding|defect)|(never|not)[^.]*(finding|defect)[^.]*outdated/i);
+  it('builder/phases/observe.md priority 4 files a dev-only critical/high advisory as medium, not as silence', () => {
+    const p4 = priority4();
+    expect(p4).toMatch(/dev-only[^.]*medium|medium[^.]*dev-only/i);
+    expect(p4).not.toMatch(/dev tree[^.]*(never ships|not a finding)/i);
+  });
+
+  it('builder/phases/observe.md names the scanner\'s own "dependency update:" and "dependency major behind:" findings as standing', () => {
+    const md = brief();
+    expect(md).toContain('dependency update:');
+    expect(md).toContain('dependency major behind:');
+  });
+
+  it('builder/phases/observe.md no longer says outdated packages / npm outdated lines are flatly never findings', () => {
+    expect(flatOutdatedExclusions(brief())).toEqual([]);
+  });
+
+  it('builder/phases/observe.md still says the model\'s own passes never propose a bump', () => {
+    const hit = sentences(brief()).filter((s) => /bump/i.test(s) && /\b(never|not)\b/i.test(s));
+    expect(hit.length).toBeGreaterThanOrEqual(1);
   });
 
   it('builder/phases/observe.md keeps the by-design non-findings (regression guard)', () => {
@@ -682,8 +830,18 @@ describe('observer policy text', () => {
     expect(md).toMatch(/lru-cache/);
   });
 
-  it('builder/observe.md names the dependency scanner as a source', () => {
-    expect(facet()).toMatch(/dependencies\.mjs|dependency scanner/i);
+  it('builder/observe.md source 5 names both scanners and what each reports', () => {
+    const s5 = source5();
+    expect(s5.length, 'source 5 (the dependency scanners) not found').toBeGreaterThan(0);
+    expect(s5).toContain('dependencies.mjs');
+    expect(s5).toContain('peer-ranges.mjs');
+    // dependencies.mjs: advisories, updates, major-behind; peer-ranges.mjs: the peer findings and its own blind title
+    expect(s5).toMatch(/advisor/i);
+    expect(s5).toContain('dependency update:');
+    expect(s5).toContain('dependency major behind:');
+    expect(s5).toMatch(/peer/i);
+    expect(s5).toContain('peer-range scanner blind');
+    expect(s5).toContain('dependency scanner blind');
   });
 
   it('builder/observe.md Boundaries count a runtime-tree advisory as a framework defect', () => {
@@ -692,10 +850,23 @@ describe('observer policy text', () => {
     expect(boundaries).toMatch(/advisor/i);
   });
 
+  it('builder/observe.md Boundaries no longer say outdated packages or npm outdated lines are flatly not findings', () => {
+    const boundaries = section(facet(), '## Boundaries');
+    expect(boundaries.length).toBeGreaterThan(0);
+    expect(flatOutdatedExclusions(boundaries)).toEqual([]);
+    expect(boundaries).toMatch(/dependency update|major behind|scanner/i);
+  });
+
   it('builder/observe.md Coverage block requires the dependency scanner, with a through-timestamp', () => {
     const coverage = section(facet(), '## Coverage block');
     expect(coverage.length).toBeGreaterThan(0);
     expect(coverage).toMatch(/dependenc/i);
     expect(coverage).toMatch(/timestamp/i);
+  });
+
+  it('both facets are written in the present tense: no dates', () => {
+    for (const md of [facet(), brief()]) {
+      expect(md).not.toMatch(/\b\d{4}-\d{2}-\d{2}\b/);
+    }
   });
 });
