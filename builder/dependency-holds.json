@@ -1,4 +1,8 @@
 [
+  { "package": "@unhead/vue", "range": "2.x", "scope": "major", "reason": "Every site inherits it. Held by the owner 2026-11-17 until vite-ssg requires 3.x; the 2.x line is patched." },
+  { "package": "fast-uri", "range": "3.x", "scope": "major", "reason": "Every site inherits it and the 3.x line is patched. Held by the owner 2026-11-17; revisit when an advisory has no fix on 3.x." },
+  { "package": "undici", "range": "7.x", "scope": "major", "reason": "Every site inherits it and the 7.x line is patched. Held by the owner 2026-11-17; revisit when an advisory has no fix on 7.x." },
+  { "package": "dotenv", "range": "17.x", "scope": "major", "reason": "The major fixes no advisory. Held by the owner 2026-11-17." },
   { "package": "glob", "range": "13.x", "reason": "No fix is reachable: it arrives in the dev-only tree through @vue/test-utils, and npm's only fix moves @vue/test-utils below the installed release. It never ships to a site. Accepted by the owner 2026-11-17 until @vue/test-utils moves.", "acceptedAdvisories": ["GHSA-3g3m-2fjr-6pw4"] },
   { "package": "minimatch", "range": "10.x", "reason": "No fix is reachable: it arrives in the dev-only tree through @vue/test-utils, and npm's only fix moves @vue/test-utils below the installed release. It never ships to a site. Accepted by the owner 2026-11-17 until @vue/test-utils moves.", "acceptedAdvisories": ["GHSA-g3hv-75wg-m249"] }
 ]

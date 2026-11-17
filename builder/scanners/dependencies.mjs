@@ -3,20 +3,32 @@
 //
 // Advisories are read with "npm audit --json --package-lock-only" over the whole
 // lockfile. Updates cover direct dependencies only: every workspace
-// package.json, checked against the registry's version list through
-// "npm view <pkg> versions --json". The target is the highest release that is
-// not a prerelease. The dist-tags are never read, because "latest" has pointed
-// at betas before. No finding ever proposes a version below the installed one.
+// package.json, checked against the registry's version list and publish times
+// through "npm view <pkg> versions time --json". The target is the highest
+// release that is not a prerelease. The dist-tags are never read, because
+// "latest" has pointed at betas before. No finding ever proposes a version
+// below the installed one.
+//
+// Update cooldown: a patch or minor update files only once the installed
+// version has been superseded for UPDATE_COOLDOWN_DAYS, measured from the
+// publish time of the oldest stable release between the installed version and
+// the target. A package that publishes every day therefore files when the
+// repo is a month behind, not on every sweep. A release whose publish time
+// can't be read files at once (louder, never quieter). Advisories and majors
+// behind never wait. BUILDMILL_DEPENDENCY_UPDATE_COOLDOWN_DAYS overrides the
+// window; 0 turns it off.
 //
 // Holds live in builder/dependency-holds.json, outside scanners/ so the runner
 // never executes the file. It is a JSON array of
-// { package, range, reason, acceptedAdvisories? }. While the installed version
-// is inside "range" ("*", "N.x", "N.M.x" or an exact version), the package
-// files no update finding. An advisory is silenced only when its GHSA id is
+// { package, range, reason, scope?, acceptedAdvisories? }. While the installed
+// version is inside "range" ("*", "N.x", "N.M.x" or an exact version), the
+// package files no update finding. A hold with "scope": "major" silences only
+// the major-behind finding: updates inside the installed major still file, and
+// it accepts no advisory. An advisory is silenced only when its GHSA id is
 // listed in acceptedAdvisories. That is how a root with no fix is declared;
 // any new advisory on a held package still files. A holds file that won't
-// parse, or an entry without a reason, files a "holds invalid" finding and the
-// entry is not honoured.
+// parse, an entry without a reason, or a scope other than "major" files a
+// "holds invalid" finding and the entry is not honoured.
 //
 // Severity:
 //   critical/high advisory, runtime (non-dev) tree   high
@@ -53,6 +65,10 @@ const MAX_BUDGET_MS = 110000;
 const envBudget = Number(process.env.BUILDMILL_DEPENDENCY_SCANNER_BUDGET_MS);
 const BUDGET_MS = envBudget > 0 ? Math.min(envBudget, MAX_BUDGET_MS) : 90000;
 const POOL = 6;
+const UPDATE_COOLDOWN_DAYS = 30;
+const DAY_MS = 86400000;
+const envCooldown = String(process.env.BUILDMILL_DEPENDENCY_UPDATE_COOLDOWN_DAYS || "").trim();
+const COOLDOWN_MS = (/^\d+(\.\d+)?$/.test(envCooldown) ? Number(envCooldown) : UPDATE_COOLDOWN_DAYS) * DAY_MS;
 const LOCKFILE = "package-lock.json";
 const HOLDS_FILE = join("builder", "dependency-holds.json");
 const ADVISORY_BASE = "https://github.com/advisories/";
@@ -117,16 +133,39 @@ function rangeMatcher(range) {
   return null;
 }
 
-// The highest registry version above installed that is not a prerelease.
-function stableTarget(installed, versions) {
+// The highest registry version above installed that is not a prerelease;
+// with sameMajor, the highest inside the installed major.
+function stableTarget(installed, versions, sameMajor) {
+  const cur = parseVersion(installed);
   let best = null;
   for (const v of versions) {
     const p = parseVersion(v);
     if (!p || p.pre) continue;
     if (compareVersions(v, installed) !== 1) continue;
+    if (sameMajor && cur && p.major !== cur.major) continue;
     if (best === null || compareVersions(v, best) === 1) best = v;
   }
   return best;
+}
+
+// Has the installed version been superseded for the whole cooldown? The clock
+// starts at the earliest publish time among the stable releases above installed
+// and up to the target. A release in that span with no readable publish time
+// counts as old: the update files rather than waits.
+function supersededLongEnough(installed, target, versions, times, now, cooldownMs) {
+  if (!(cooldownMs > 0)) return true;
+  if (!times || typeof times !== "object") return true;
+  let oldest = null;
+  for (const v of versions) {
+    const p = parseVersion(v);
+    if (!p || p.pre) continue;
+    if (compareVersions(v, installed) !== 1 || compareVersions(v, target) === 1) continue;
+    const at = typeof times[v] === "string" ? Date.parse(times[v]) : NaN;
+    if (!Number.isFinite(at)) return true;
+    if (oldest === null || at < oldest) oldest = at;
+  }
+  if (oldest === null) return true;
+  return now - oldest >= cooldownMs;
 }
 
 // --------------------------------------------------------------------- holds
@@ -144,7 +183,7 @@ function parseHolds(text) {
     return { holds, problems };
   }
   if (!Array.isArray(data)) {
-    problems.push({ key: HOLDS_FILE, why: "the file must be a JSON array of { package, range, reason, acceptedAdvisories? }" });
+    problems.push({ key: HOLDS_FILE, why: "the file must be a JSON array of { package, range, reason, scope?, acceptedAdvisories? }" });
     return { holds, problems };
   }
   data.forEach((h, i) => {
@@ -157,17 +196,24 @@ function parseHolds(text) {
     if (!h || typeof h.reason !== "string" || !h.reason.trim()) why.push("no reason");
     const accepted = h && h.acceptedAdvisories !== undefined ? h.acceptedAdvisories : [];
     if (!Array.isArray(accepted) || !accepted.every((a) => typeof a === "string")) why.push("acceptedAdvisories must be an array of GHSA ids");
+    const scope = h && h.scope !== undefined ? h.scope : "all";
+    if (h && h.scope !== undefined && scope !== "major") why.push("scope " + JSON.stringify(scope) + " is not \"major\" (leave scope out to hold every update)");
+    // a major-only hold leaves every advisory alone, so one that also lists
+    // accepted advisories would claim a silence it does not give
+    if (scope === "major" && Array.isArray(accepted) && accepted.length) why.push("a scope \"major\" hold accepts no advisories; put acceptedAdvisories in an entry without scope");
     if (why.length) {
       problems.push({ key, why: "the hold for " + key + " is not honoured: " + why.join("; ") });
       return;
     }
-    holds.push({ package: name, range: h.range.trim(), match, accepted: accepted.map((a) => normGhsa(a.trim())) });
+    holds.push({ package: name, range: h.range.trim(), match, scope, accepted: accepted.map((a) => normGhsa(a.trim())) });
   });
   return { holds, problems };
 }
 
-function heldWithin(holds, name, versions) {
-  return holds.find((h) => h.package === name && versions.length > 0 && versions.every((v) => h.match(v)));
+// The hold covering every given version of a package. scope "all" is a hold
+// without a scope (it silences every update); "major" is a major-only hold.
+function heldWithin(holds, name, versions, scope) {
+  return holds.find((h) => h.package === name && h.scope === (scope || "all") && versions.length > 0 && versions.every((v) => h.match(v)));
 }
 
 // ---------------------------------------------------------------- advisories
@@ -186,13 +232,40 @@ function advisorySeverity(level, runtime) {
   return "info";
 }
 
+// Every version of a package the lockfile installs as someone's direct
+// dependency, lowest first: the root copy (node_modules/<name>) and each
+// workspace's own copy (<workspace>/node_modules/<name>). A package that is
+// only nested under another package falls back to those nested copies.
+function installedVersions(lockPackages, name) {
+  const suffix = "node_modules/" + name;
+  const direct = [];
+  const nested = [];
+  for (const [key, entry] of Object.entries(lockPackages)) {
+    if (key !== suffix && !key.endsWith("/" + suffix)) continue;
+    if (!entry || entry.link || !parseVersion(entry.version)) continue;
+    const above = key.slice(0, key.length - suffix.length);
+    (/(^|\/)node_modules\//.test(above) ? nested : direct).push(entry.version);
+  }
+  const found = direct.length ? direct : nested;
+  return [...new Set(found)].sort((a, b) => compareVersions(a, b) || 0);
+}
+
 // What to do about one advisory, from npm audit's fixAvailable. A fix that
 // would move a package below its installed version is never proposed.
+//
+// With several installed copies (a root copy and workspace copies at different
+// versions) the fix is compared with the LOWEST copy, so it is a downgrade
+// only when it sits below every copy. A fix at or above the lowest copy still
+// lifts that copy out of the vulnerable range, so calling it "no fix" would
+// hide a real one; the remedy then names the copies, so nobody reads it as an
+// instruction to pull a higher copy down.
 function remedy(pkg, ghsa, range, fix, installedOf) {
   const accept = "replace " + pkg + ", or accept " + ghsa + " in " + HOLDS_FILE + " with a reason";
   if (fix && typeof fix === "object" && typeof fix.name === "string" && typeof fix.version === "string") {
-    const current = installedOf(fix.name);
+    const copies = installedOf(fix.name);
+    const current = copies.length ? copies[0] : null;
     const cmp = current ? compareVersions(fix.version, current) : 1;
+    const others = copies.length > 1 ? " (installed copies: " + copies.join(", ") + "; only a copy below " + fix.version + " moves)" : "";
     if (cmp === -1) {
       return {
         detail: "npm audit's only fix moves " + fix.name + " below the installed " + current + ", a downgrade: no non-downgrade fix exists.",
@@ -214,8 +287,8 @@ function remedy(pkg, ghsa, range, fix, installedOf) {
     const major = fix.isSemVerMajor ? " (a semver-major change)" : "";
     const through = fix.name === pkg ? "" : ", which brings a fixed " + pkg;
     return {
-      detail: "Fix: " + fix.name + " " + current + " → " + fix.version + major + ".",
-      proposed: "Bump " + fix.name + " to " + fix.version + major + through + ".",
+      detail: "Fix: " + fix.name + " " + current + " → " + fix.version + major + others + ".",
+      proposed: "Bump " + fix.name + " to " + fix.version + major + through + others + ".",
     };
   }
   if (fix === true) {
@@ -234,7 +307,7 @@ function remedy(pkg, ghsa, range, fix, installedOf) {
 // a string in "via" is a package that merely inherits another's advisory.
 function advisoryFindings(report, lockPackages, holds, repo) {
   const out = new Map();
-  const installedOf = (name) => (lockPackages["node_modules/" + name] || {}).version || null;
+  const installedOf = (name) => installedVersions(lockPackages, name);
   for (const [key, vuln] of Object.entries(report.vulnerabilities || {})) {
     if (!vuln || !Array.isArray(vuln.via)) continue;
     const nodes = Array.isArray(vuln.nodes) ? vuln.nodes : [];
@@ -270,20 +343,30 @@ function advisoryFindings(report, lockPackages, holds, repo) {
 // ------------------------------------------------------------------- updates
 
 // One direct dependency against its registry version list → a finding or null.
-function updateFinding(dep, versions, holds, repo) {
+// times is the registry's version → publish time map (null when unread), and
+// a patch or minor update waits out cooldownMs from the first release that
+// superseded the installed version. A major behind never waits.
+function updateFinding(dep, versions, holds, repo, times, now, cooldownMs) {
   if (heldWithin(holds, dep.name, [dep.installed])) return null;
-  const target = stableTarget(dep.installed, versions);
+  let target = stableTarget(dep.installed, versions);
   if (!target) return null;
   const cur = parseVersion(dep.installed);
-  const next = parseVersion(target);
   const where = dep.where.join(", ");
-  const detail = dep.name + " is installed at " + dep.installed + " (declared in " + where + "); the highest stable release on the registry is " +
-    target + ". Prereleases and dist-tags are not considered.";
-  const proposedChange = "Bump " + dep.name + " to " + target + " in " + where + ".";
-  if (next.major > cur.major) {
-    return { title: "dependency major behind: " + dep.name + " " + cur.major + ".x → " + next.major + ".x (" + repo + ")", severity: "low", detail, proposedChange };
+  let scopeNote = "the highest stable release on the registry is ";
+  if (parseVersion(target).major > cur.major) {
+    const majorHold = heldWithin(holds, dep.name, [dep.installed], "major");
+    if (!majorHold) {
+      const detail = dep.name + " is installed at " + dep.installed + " (declared in " + where + "); " + scopeNote + target + ". Prereleases and dist-tags are not considered.";
+      return { title: "dependency major behind: " + dep.name + " " + cur.major + ".x → " + parseVersion(target).major + ".x (" + repo + ")", severity: "low", detail, proposedChange: "Bump " + dep.name + " to " + target + " in " + where + "." };
+    }
+    // the next major is held: only a release inside the installed major counts
+    target = stableTarget(dep.installed, versions, true);
+    if (!target) return null;
+    scopeNote = "later majors are held in " + HOLDS_FILE + ", and the highest stable " + cur.major + ".x release is ";
   }
-  return { title: "dependency update: " + dep.name + " (" + repo + ")", severity: "info", detail, proposedChange };
+  if (!supersededLongEnough(dep.installed, target, versions, times, now, cooldownMs)) return null;
+  const detail = dep.name + " is installed at " + dep.installed + " (declared in " + where + "); " + scopeNote + target + ". Prereleases and dist-tags are not considered.";
+  return { title: "dependency update: " + dep.name + " (" + repo + ")", severity: "info", detail, proposedChange: "Bump " + dep.name + " to " + target + " in " + where + "." };
 }
 
 // Direct registry dependencies of every workspace the lockfile records: the
@@ -326,6 +409,9 @@ const CONTROL = {
     "node_modules/devopt": { version: "1.0.0", devOptional: true },
     "node_modules/old": { version: "5.0.0" },
     "node_modules/held": { version: "1.0.0" },
+    "packages/web/node_modules/wsonly": { version: "3.51.4" },
+    "node_modules/twice": { version: "2.0.0" },
+    "packages/web/node_modules/twice": { version: "4.0.0" },
   },
   audit: {
     vulnerabilities: {
@@ -342,12 +428,26 @@ const CONTROL = {
           { source: 4, name: "held", title: "control", url: "https://github.com/advisories/GHSA-c0c0-0000-0004", severity: "critical", range: "<=1.0.0" },
           { source: 5, name: "held", title: "control", url: "https://github.com/advisories/GHSA-c0c0-0000-0005", severity: "critical", range: "<=1.0.0" },
         ] },
+      wsonly: { severity: "critical", nodes: ["packages/web/node_modules/wsonly"], fixAvailable: { name: "wsonly", version: "3.6.1", isSemVerMajor: true },
+        via: [{ source: 7, name: "wsonly", title: "control", url: "https://github.com/advisories/GHSA-c0c0-0000-0007", severity: "critical", range: ">=3.7.0" }] },
+      twice: { severity: "critical", nodes: ["node_modules/twice"], fixAvailable: { name: "twice", version: "3.0.0", isSemVerMajor: true },
+        via: [{ source: 8, name: "twice", title: "control", url: "https://github.com/advisories/GHSA-c0c0-0000-0008", severity: "critical", range: "<3.0.0" }] },
       parent: { severity: "critical", nodes: ["node_modules/parent"], fixAvailable: true, via: ["rt"] },
     },
   },
-  holds: '[{ "package": "held", "range": "1.x", "reason": "control", "acceptedAdvisories": ["GHSA-c0c0-0000-0004"] }]',
+  holds: '[{ "package": "held", "range": "1.x", "reason": "control", "acceptedAdvisories": ["GHSA-c0c0-0000-0004"] },' +
+    ' { "package": "majheld", "range": "1.x", "scope": "major", "reason": "control" },' +
+    ' { "package": "majonly", "range": "1.x", "scope": "major", "reason": "control" }]',
+  // the cooldown cases are judged at this instant with the built-in window:
+  // upd was superseded long ago, fresh yesterday, notime has no publish times
+  now: Date.parse("2026-01-31T00:00:00Z"),
   updates: [
-    { dep: { name: "upd", installed: "1.0.0", where: ["package.json"] }, versions: ["1.0.0", "1.2.0", "1.3.0-rc.1"] },
+    { dep: { name: "upd", installed: "1.0.0", where: ["package.json"] }, versions: ["1.0.0", "1.2.0", "1.3.0-rc.1"], times: { "1.2.0": "2025-12-01T00:00:00Z", "1.3.0-rc.1": "2025-06-01T00:00:00Z" } },
+    { dep: { name: "fresh", installed: "1.0.0", where: ["package.json"] }, versions: ["1.0.0", "1.0.1", "1.0.2"], times: { "1.0.0": "2025-01-01T00:00:00Z", "1.0.1": "2026-01-29T00:00:00Z", "1.0.2": "2026-01-30T00:00:00Z" } },
+    { dep: { name: "notime", installed: "1.0.0", where: ["package.json"] }, versions: ["1.0.0", "1.0.1"], times: null },
+    { dep: { name: "majheld", installed: "1.0.0", where: ["package.json"] }, versions: ["1.0.0", "1.0.5", "2.0.0"], times: { "1.0.5": "2025-12-01T00:00:00Z", "2.0.0": "2025-12-01T00:00:00Z" } },
+    { dep: { name: "majonly", installed: "1.0.0", where: ["package.json"] }, versions: ["1.0.0", "2.0.0"], times: { "2.0.0": "2025-12-01T00:00:00Z" } },
+    { dep: { name: "freshmaj", installed: "1.0.0", where: ["package.json"] }, versions: ["1.0.0", "2.0.0"], times: { "2.0.0": "2026-01-30T00:00:00Z" } },
     { dep: { name: "maj", installed: "1.0.0", where: ["package.json"] }, versions: ["1.0.0", "3.1.0", "4.0.0-beta.1"] },
     { dep: { name: "pre", installed: "1.0.0", where: ["package.json"] }, versions: ["0.9.0", "1.0.0", "2.0.0-beta.1"] },
     { dep: { name: "held", installed: "1.0.0", where: ["package.json"] }, versions: ["1.0.0", "1.1.0", "2.0.0"] },
@@ -358,11 +458,18 @@ const CONTROL = {
     ["dependency advisory: devopt GHSA-c0c0-0000-0006 (control)", "high"],
     ["dependency advisory: old GHSA-c0c0-0000-0003 (control)", "high"],
     ["dependency advisory: held GHSA-c0c0-0000-0005 (control)", "high"],
+    ["dependency advisory: wsonly GHSA-c0c0-0000-0007 (control)", "high"],
+    ["dependency advisory: twice GHSA-c0c0-0000-0008 (control)", "high"],
     ["dependency major behind: maj 1.x → 3.x (control)", "low"],
+    ["dependency major behind: freshmaj 1.x → 2.x (control)", "low"],
     ["dependency update: upd (control)", "info"],
+    ["dependency update: notime (control)", "info"],
+    ["dependency update: majheld (control)", "info"],
   ],
-  downgrade: "dependency advisory: old GHSA-c0c0-0000-0003 (control)",
-  neverProposed: ["4.9.0", "1.3.0-rc.1", "4.0.0-beta.1", "2.0.0-beta.1"],
+  downgrade: ["dependency advisory: old GHSA-c0c0-0000-0003 (control)", "dependency advisory: wsonly GHSA-c0c0-0000-0007 (control)"],
+  // twice has a copy below its fix and one above: the fix is real and proposed
+  upgrade: "dependency advisory: twice GHSA-c0c0-0000-0008 (control)",
+  neverProposed: ["4.9.0", "3.6.1", "1.3.0-rc.1", "4.0.0-beta.1", "2.0.0-beta.1", "1.0.2"],
 };
 // --- end negative control
 
@@ -372,14 +479,16 @@ function negativeControl() {
   if (problems.length) wrong.push("the control hold was rejected: " + problems.map((p) => p.why).join("; "));
   const got = [
     ...advisoryFindings(CONTROL.audit, CONTROL.lock, holds, "control"),
-    ...CONTROL.updates.map((u) => updateFinding(u.dep, u.versions, holds, "control")).filter(Boolean),
+    ...CONTROL.updates.map((u) => updateFinding(u.dep, u.versions, holds, "control", u.times || null, CONTROL.now, UPDATE_COOLDOWN_DAYS * DAY_MS)).filter(Boolean),
   ];
   const seen = got.map((f) => f.title + " = " + f.severity).sort();
   const want = CONTROL.expect.map(([t, s]) => t + " = " + s).sort();
   for (const w of want) if (!seen.includes(w)) wrong.push("expected " + w);
   for (const s of seen) if (!want.includes(s)) wrong.push("did not expect " + s);
-  const down = got.find((f) => f.title === CONTROL.downgrade);
-  if (down && !/no non-downgrade fix/i.test(down.proposedChange)) wrong.push("the downgrade-only advisory does not say there is no non-downgrade fix");
+  for (const f of got) {
+    if (CONTROL.downgrade.includes(f.title) && !/no non-downgrade fix/i.test(f.proposedChange)) wrong.push(f.title + " does not say there is no non-downgrade fix");
+    if (f.title === CONTROL.upgrade && !/^Bump twice to 3\.0\.0/.test(f.proposedChange)) wrong.push(f.title + " does not propose the fix above its lowest copy");
+  }
   for (const f of got) {
     for (const v of CONTROL.neverProposed) {
       if ((f.title + "\n" + f.proposedChange).includes(v)) wrong.push(f.title + " proposes " + v);
@@ -464,8 +573,10 @@ async function updates(repo, lockPackages, holds) {
   const names = [...new Set(deps.map((d) => d.name))];
   const failed = [];
   const versionsOf = new Map();
+  const timesOf = new Map();
   await pool(names, POOL, async (name) => {
-    const res = await run("npm", ["view", "--json", "--", name, "versions"]);
+    // one registry read per package: the version list and the publish times
+    const res = await run("npm", ["view", "--json", "--", name, "versions", "time"]);
     if (res.aborted) return;
     const data = parseJson(res.stdout);
     if (data && typeof data === "object" && !Array.isArray(data) && data.error) {
@@ -476,18 +587,28 @@ async function updates(repo, lockPackages, holds) {
       failed.push(name + ": " + (firstLine(res.stderr) || "exit " + res.code));
       return;
     }
-    versionsOf.set(name, Array.isArray(data) ? data.map(String) : [String(data)]);
+    // two fields come back as { versions, time }; npm prints a bare value when
+    // the registry has only one of them, and that value is the version list
+    const both = data && typeof data === "object" && !Array.isArray(data) ? data : null;
+    const list = both ? both.versions : data;
+    if (list === undefined || list === null) {
+      failed.push(name + ": no version list in the registry answer");
+      return;
+    }
+    versionsOf.set(name, Array.isArray(list) ? list.map(String) : [String(list)]);
+    if (both && both.time && typeof both.time === "object") timesOf.set(name, both.time);
   });
   if (abort.signal.aborted) return;
   if (failed.length) {
-    blind(repo, "registry unreachable", "npm view could not read registry versions for " + failed.length + " of " + names.length +
+    blind(repo, "registry unreachable", "npm view could not read registry versions and publish times for " + failed.length + " of " + names.length +
       " direct dependencies: " + failed.slice(0, 5).join("; "),
       "Make the npm registry reachable from the runner host, so updates are read rather than assumed absent.");
   }
+  const now = Date.now();
   for (const dep of deps) {
     const versions = versionsOf.get(dep.name);
     if (!versions) continue;
-    const f = updateFinding(dep, versions, holds, repo);
+    const f = updateFinding(dep, versions, holds, repo, timesOf.get(dep.name) || null, now, COOLDOWN_MS);
     if (f && !findings.some((g) => g.title === f.title)) findings.push(f);
   }
 }
@@ -518,7 +639,7 @@ async function main() {
       findings.push({
         title: "dependency holds invalid: " + p.key + " (" + repo + ")",
         severity: "medium",
-        detail: HOLDS_FILE + ": " + p.why + ". Each hold is { package, range, reason, acceptedAdvisories? }, and an invalid hold silences nothing.",
+        detail: HOLDS_FILE + ": " + p.why + ". Each hold is { package, range, reason, scope?, acceptedAdvisories? }, and an invalid hold silences nothing.",
         proposedChange: "Fix the entry in " + HOLDS_FILE + ", giving it a package, a range and a reason.",
       });
     }
