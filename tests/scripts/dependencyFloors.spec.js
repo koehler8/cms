@@ -333,6 +333,30 @@ describe('sharp advisory fix (GHSA-wq5f-xc86-pv6w)', () => {
   });
 });
 
+describe('happy-dom advisory fix (GHSA-834v-8h66-3h79, GHSA-c8p4-j97h-3vg8)', () => {
+  // happy-dom is the Vitest environment. Releases up to 21.0.3 carry
+  // GHSA-834v-8h66-3h79 and those up to 20.14.6 carry GHSA-c8p4-j97h-3vg8, so
+  // 21.0.4 is the first release clear of both. It is a dev dependency only:
+  // no site installs it, so the floor guards this repo's own test tree.
+  const FIXED = [21, 0, 4];
+  const isHappyDom = (key) => key === 'node_modules/happy-dom' || key.endsWith('/node_modules/happy-dom');
+  const entries = Object.entries(lock.packages).filter(([key]) => isHappyDom(key));
+
+  it('stays a dev dependency whose range cannot admit a vulnerable release', () => {
+    expect(pkg.devDependencies?.['happy-dom'], 'happy-dom must stay in devDependencies').toBeTruthy();
+    expect(pkg.dependencies?.['happy-dom']).toBeUndefined();
+    expect(pkg.peerDependencies?.['happy-dom']).toBeUndefined();
+    expect(atLeast(rangeFloor(pkg.devDependencies['happy-dom']), FIXED)).toBe(true);
+  });
+
+  it('leaves no installed happy-dom below the fixed release', () => {
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [key, entry] of entries) {
+      expect(atLeast(parseVersion(entry.version), FIXED), `${key} is ${entry.version}`).toBe(true);
+    }
+  });
+});
+
 describe('peerDependencies floors', () => {
   for (const [name, floor] of Object.entries(PEER_FLOORS)) {
     it(`${name} peer floor is at least ${floor}`, () => {
